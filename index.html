@@ -576,6 +576,10 @@ tr:hover td { background: rgba(124,111,255,.04); }
     <div class="nav-item" onclick="showView('analisis')">
       <span class="nav-icon">◉</span> Análisis
     </div>
+    <div style="flex:1"></div>
+    <div class="nav-item" onclick="showView('config')">
+      <span class="nav-icon">⚙️</span> Configuración
+    </div>
   </nav>
 
   <!-- ── MAIN ── -->
@@ -590,6 +594,7 @@ tr:hover td { background: rgba(124,111,255,.04); }
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div class="ig-chip" id="ig-status-chip">IG: verificando…</div>
+          <button class="btn btn-secondary" onclick="window.open('/parrilla', '_blank')">🔗 Parrilla Pública</button>
           <button class="btn btn-secondary" id="btn-ig-sync" onclick="syncInstagram()">↻ Sincronizar IG</button>
         </div>
       </div>
@@ -632,8 +637,8 @@ tr:hover td { background: rgba(124,111,255,.04); }
     <div class="view" id="view-nuevo">
       <div class="page-header">
         <div>
-          <div class="page-title">Nuevo Post</div>
-          <div class="page-sub">Planifica tu próxima publicación</div>
+          <div class="page-title" id="form-post-title">Nuevo Post</div>
+          <div class="page-sub" id="form-post-sub">Planifica tu próxima publicación</div>
         </div>
       </div>
 
@@ -756,6 +761,37 @@ tr:hover td { background: rgba(124,111,255,.04); }
       </div>
     </div>
 
+    <!-- ═══════════════════ CONFIGURACIÓN ═══════════════════ -->
+    <div class="view" id="view-config">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Configuración</div>
+          <div class="page-sub">Ajustes y conexiones de la aplicación</div>
+        </div>
+      </div>
+
+      <div class="section-title">Conexión con Instagram Graph API</div>
+      <div class="form-card">
+        <form id="form-config" novalidate onsubmit="guardarConfig(event)">
+          <div class="form-grid">
+            <div class="form-group full">
+              <label class="form-label">Instagram Business Account ID</label>
+              <input type="text" class="form-input" id="c-account-id" placeholder="178414XXXXXXX" required>
+            </div>
+            <div class="form-group full">
+              <label class="form-label">Access Token (Graph API)</label>
+              <input type="password" class="form-input" id="c-access-token" placeholder="EAA..." required>
+              <span class="input-hint">El token temporal o de larga duración de la app de Facebook asociada.</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="loadConfig()">Descartar cambios</button>
+            <button type="submit" class="btn btn-primary">Guardar Configuración</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -825,6 +861,8 @@ function showView(name) {
   else if (name === 'metricas') loadMetricasPendientes();
   else if (name === 'calendario') renderCalendar();
   else if (name === 'analisis') loadAnalisis();
+  else if (name === 'config') loadConfig();
+  else if (name === 'nuevo' && currentEditId === null) resetForm();
 }
 
 // ─── API HELPERS ──────────────────────────────────────────────────────────────
@@ -866,6 +904,8 @@ function toast(msg, type='success') {
 }
 
 // ─── FORM POST ────────────────────────────────────────────────────────────────
+let currentEditId = null;
+
 document.getElementById('form-post').addEventListener('submit', async e => {
   e.preventDefault();
   let valid = true;
@@ -892,22 +932,55 @@ document.getElementById('form-post').addEventListener('submit', async e => {
   };
 
   try {
-    const res = await apiFetch('/api/posts', { method:'POST', body: JSON.stringify(data) });
-    toast(`Post del ${res.dia_semana} guardado correctamente ✦`);
+    if (currentEditId) {
+      const res = await apiFetch('/api/posts/' + currentEditId, { method:'PUT', body: JSON.stringify(data) });
+      toast(`Post actualizado correctamente ✦`);
+    } else {
+      const res = await apiFetch('/api/posts', { method:'POST', body: JSON.stringify(data) });
+      toast(`Post del ${res.dia_semana} guardado correctamente ✦`);
+    }
     resetForm();
     showView('posts');
   } catch (err) {
     toast(err.message || 'Error al guardar el post', 'error');
   }
-  btn.disabled = false; btn.textContent = '✦ Guardar post';
+  btn.disabled = false; btn.textContent = currentEditId ? 'Actualizar post' : '✦ Guardar post';
 });
 
 function resetForm() {
   document.getElementById('form-post').reset();
   document.querySelectorAll('.has-error').forEach(el => el.classList.remove('has-error'));
-  // Set default date to today
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('f-fecha').value = today;
+  currentEditId = null;
+  document.getElementById('form-post-title').textContent = 'Nuevo Post';
+  document.getElementById('form-post-sub').textContent = 'Planifica tu próxima publicación';
+  document.querySelector('#form-post button[type=submit]').textContent = '✦ Guardar post';
+}
+
+async function startEditPost(id) {
+  try {
+    const posts = await apiFetch('/api/posts');
+    const post = posts.find(p => p.id === id);
+    if (!post) throw new Error("Post no encontrado");
+
+    document.getElementById('f-fecha').value = post.fecha;
+    document.getElementById('f-tipo').value = post.tipo_contenido;
+    document.getElementById('f-objetivo').value = post.objetivo;
+    document.getElementById('f-tema').value = post.tema;
+    document.getElementById('f-cta').value = post.cta;
+    document.getElementById('f-descripcion').value = post.descripcion || "";
+    document.getElementById('f-interacciones').value = post.interacciones_esperadas || 0;
+
+    currentEditId = id;
+    document.getElementById('form-post-title').textContent = 'Editar Post';
+    document.getElementById('form-post-sub').textContent = 'Actualiza los datos de esta publicación';
+    document.querySelector('#form-post button[type=submit]').textContent = 'Actualizar post';
+    
+    showView('nuevo');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
@@ -968,6 +1041,7 @@ function buildPostsTable(posts, withActions) {
     const exp = p.interacciones_esperadas || 0;
     const vs = exp > 0 ? `<span style="color:${inter>=exp?'var(--accent3)':'var(--accent2)'};font-size:11px">${inter>=exp?'▲':'▼'} ${inter}/${exp}</span>` : `<span style="color:var(--text-muted)">${inter}</span>`;
     const actions = withActions ? `
+      <button class="btn btn-secondary" style="padding:6px;font-size:12px;margin-right:4px;" onclick="startEditPost(${p.id})" title="Editar">✏️</button>
       <button class="btn btn-success" onclick="openModal(${p.id},'${escHtml(p.tema)}')">⊕ Métricas</button>
       <button class="btn btn-danger" onclick="deletePost(${p.id})">✕</button>
     ` : '';
@@ -1277,6 +1351,35 @@ async function loadAnalisis() {
 document.getElementById('modal-metricas').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeModal();
 });
+
+// ─── CONFIGURACIÓN ─────────────────────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const data = await apiFetch('/api/config');
+    document.getElementById('c-account-id').value = data.INSTAGRAM_BUSINESS_ACCOUNT_ID || '';
+    document.getElementById('c-access-token').value = data.INSTAGRAM_ACCESS_TOKEN || '';
+  } catch (err) {
+    toast('No se pudo cargar la configuración', 'error');
+  }
+}
+
+async function guardarConfig(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('[type=submit]');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  const data = {
+    INSTAGRAM_BUSINESS_ACCOUNT_ID: document.getElementById('c-account-id').value,
+    INSTAGRAM_ACCESS_TOKEN: document.getElementById('c-access-token').value
+  };
+  try {
+    await apiFetch('/api/config', { method: 'POST', body: JSON.stringify(data) });
+    toast('Configuración guardada correctamente ◈');
+    await refreshInstagramStatus();
+  } catch (err) {
+    toast(err.message || 'Error al guardar configuración', 'error');
+  }
+  btn.disabled = false; btn.textContent = 'Guardar Configuración';
+}
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {

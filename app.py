@@ -61,7 +61,8 @@ def init_db():
     c.execute("PRAGMA table_info(posts)")
     post_columns = {row[1] for row in c.fetchall()}
     if "instagram_media_id" not in post_columns:
-        c.execute("ALTER TABLE posts ADD COLUMN instagram_media_id TEXT UNIQUE")
+        c.execute("ALTER TABLE posts ADD COLUMN instagram_media_id TEXT")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_instagram_media_id ON posts(instagram_media_id)")
     if "instagram_permalink" not in post_columns:
         c.execute("ALTER TABLE posts ADD COLUMN instagram_permalink TEXT")
 
@@ -102,12 +103,20 @@ def get_env(name, required=False):
     return value
 
 def get_ig_config():
-    account_id = get_env("INSTAGRAM_BUSINESS_ACCOUNT_ID")
-    token = get_env("INSTAGRAM_ACCESS_TOKEN")
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT key, value FROM config WHERE key IN ('INSTAGRAM_BUSINESS_ACCOUNT_ID', 'INSTAGRAM_ACCESS_TOKEN')")
+    rows = c.fetchall()
+    conn.close()
+    
+    config_db = {row['key']: row['value'] for row in rows}
+    
+    account_id = config_db.get("INSTAGRAM_BUSINESS_ACCOUNT_ID") or get_env("INSTAGRAM_BUSINESS_ACCOUNT_ID")
+    token = config_db.get("INSTAGRAM_ACCESS_TOKEN") or get_env("INSTAGRAM_ACCESS_TOKEN")
     if not account_id or not token:
         raise ValueError(
             "Configura INSTAGRAM_BUSINESS_ACCOUNT_ID e INSTAGRAM_ACCESS_TOKEN "
-            "en variables de entorno para sincronizar con Instagram."
+            "en la interfaz de configuración o variables de entorno."
         )
     return {"account_id": account_id, "token": token}
 
@@ -217,6 +226,27 @@ def sync_instagram_posts_and_metrics(limit=25):
         )
         likes = parse_int(insights.get("like_count", 0), "like_count")
         comentarios = parse_int(insights.get("comments_count", 0), "comments_count")
+        # Fetch extra insights if possible (like saved, shares).
+        # We try to get 'saved'. If it fails, fallback to 0. (Not all objects support 'saved' but standard posts do).
+        guardados = 0
+        compartidos = 0
+        try:
+            ins = graph_get(
+                f"{media_id}/insights",
+                {
+                    "metric": "saved,shares",
+                    "access_token": token
+                }
+            )
+            data = ins.get("data", [])
+            for m in data:
+                if m.get("name") == "saved":
+                    guardados = sum(v.get("value", 0) for v in m.get("values", []))
+                elif m.get("name") == "shares":
+                    compartidos = sum(v.get("value", 0) for v in m.get("values", []))
+        except ValueError:
+            pass # Metric not supported or missing for this object
+
         c.execute(
             """
             INSERT INTO metricas (post_id, likes, comentarios, compartidos, guardados,
@@ -225,6 +255,8 @@ def sync_instagram_posts_and_metrics(limit=25):
             ON CONFLICT(post_id) DO UPDATE SET
                 likes=excluded.likes,
                 comentarios=excluded.comentarios,
+                compartidos=excluded.compartidos,
+                guardados=excluded.guardados,
                 fecha_medicion=excluded.fecha_medicion,
                 notas=excluded.notas
             """,
@@ -232,8 +264,8 @@ def sync_instagram_posts_and_metrics(limit=25):
                 post_id,
                 likes,
                 comentarios,
-                0,
-                0,
+                compartidos,
+                guardados,
                 0,
                 0,
                 str(date.today()),
@@ -248,9 +280,13 @@ def sync_instagram_posts_and_metrics(limit=25):
     return {"ok": True, "importados": imported, "metricas_actualizadas": updated, "total_recibidos": len(media_items)}
 
 def get_instagram_status():
-    account_id = get_env("INSTAGRAM_BUSINESS_ACCOUNT_ID")
-    token = get_env("INSTAGRAM_ACCESS_TOKEN")
-    configured = bool(account_id and token)
+    try:
+        cfg = get_ig_config()
+        configured = True
+        account_id = cfg["account_id"]
+    except ValueError:
+        configured = False
+        account_id = None
     return {
         "configured": configured,
         "account_id": account_id[-6:] if account_id else None,
@@ -289,6 +325,46 @@ def crear_post(data):
     ))
     conn.commit()
     post_id = c.lastrowid
+    conn.close()
+    return {"ok": True, "id": post_id, "dia_semana": dia}
+
+def editar_post(post_id, data):
+    fecha = parse_iso_date(data.get("fecha", ""), "fecha")
+    try:
+        d = datetime.strptime(fecha, "%Y-%m-%d")
+        dias = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+        dia = dias[d.weekday()]
+    except (TypeError, ValueError):
+        dia = "Desconocido"
+
+    required_fields = ["tipo_contenido", "objetivo", "tema", "cta"]
+    for field in required_fields:
+        if not str(data.get(field, "")).strip():
+            raise ValueError(f"'{field}' es requerido")
+
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT id FROM posts WHERE id=?", (post_id,))
+    if not c.fetchone():
+        conn.close()
+        raise LookupError("Post no encontrado")
+
+    c.execute("""
+        UPDATE posts
+        SET fecha=?, dia_semana=?, tipo_contenido=?, objetivo=?, tema=?, cta=?,
+            descripcion=?, interacciones_esperadas=?
+        WHERE id=?
+    """, (
+        fecha, dia,
+        data.get("tipo_contenido",""),
+        data.get("objetivo",""),
+        data.get("tema",""),
+        data.get("cta",""),
+        data.get("descripcion",""),
+        parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
+        post_id
+    ))
+    conn.commit()
     conn.close()
     return {"ok": True, "id": post_id, "dia_semana": dia}
 
@@ -347,6 +423,50 @@ def get_posts():
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
+
+def get_parrilla():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, fecha, dia_semana, tipo_contenido, tema, descripcion, estado, instagram_permalink
+        FROM posts
+        ORDER BY fecha ASC
+    """)
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def get_config_keys():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT key, value FROM config")
+    rows = {r['key']: r['value'] for r in c.fetchall()}
+    conn.close()
+    # Mask the token for safety when reading
+    if "INSTAGRAM_ACCESS_TOKEN" in rows and rows["INSTAGRAM_ACCESS_TOKEN"]:
+        rows["INSTAGRAM_ACCESS_TOKEN"] = rows["INSTAGRAM_ACCESS_TOKEN"][:4] + "***"
+    return rows
+
+def set_config_keys(data):
+    conn = get_conn()
+    c = conn.cursor()
+    
+    # We only allow updating these keys
+    allowed_keys = ["INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN"]
+    
+    for key, val in data.items():
+        if key in allowed_keys:
+            # If value contains "***", do not overwrite it.
+            if "***" in val:
+                continue
+            c.execute("""
+                INSERT INTO config (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """, (key, val))
+            
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 def get_analisis():
     conn = get_conn()
@@ -485,7 +605,18 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/" or path == "/index.html":
             file_response(self, "index.html", "text/html; charset=utf-8")
+        elif path == "/parrilla" or path == "/parrilla.html":
+            file_response(self, "parrilla.html", "text/html; charset=utf-8")
         elif path == "/api/posts":
+            json_response(self, get_posts())
+        elif path == "/api/parrilla":
+            json_response(self, get_parrilla())
+        elif path == "/api/analisis":
+            json_response(self, get_analisis())
+        elif path == "/api/integrations/instagram/status":
+            json_response(self, get_instagram_status())
+        elif path == "/api/config":
+            json_response(self, get_config_keys())
             json_response(self, get_posts())
         elif path == "/api/analisis":
             json_response(self, get_analisis())
@@ -509,6 +640,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/posts":
                 result = crear_post(data)
                 json_response(self, result, 201)
+            elif path == "/api/config":
+                result = set_config_keys(data)
+                json_response(self, result)
             elif re.match(r"/api/posts/(\d+)/metricas$", path):
                 post_id = int(re.search(r"/api/posts/(\d+)/metricas$", path).group(1))
                 result = registrar_metricas(post_id, data)
@@ -525,6 +659,31 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"error": str(e)}, 404)
         except Exception:
             json_response(self, {"error": "Error interno del servidor"}, 500)
+
+    def do_PUT(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length)
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            json_response(self, {"error": "JSON inválido"}, 400)
+            return
+
+        path = urlparse(self.path).path
+        m = re.match(r"/api/posts/(\d+)$", path)
+        if m:
+            post_id = int(m.group(1))
+            try:
+                result = editar_post(post_id, data)
+                json_response(self, result)
+            except ValueError as e:
+                json_response(self, {"error": str(e)}, 400)
+            except LookupError as e:
+                json_response(self, {"error": str(e)}, 404)
+            except Exception:
+                json_response(self, {"error": "Error interno del servidor"}, 500)
+        else:
+            json_response(self, {"error": "Ruta no encontrada"}, 404)
 
     def do_DELETE(self):
         path = urlparse(self.path).path

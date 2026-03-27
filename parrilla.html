@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parrilla de Contenido — SocialPulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0f; --surface: #12121a; --surface2: #1a1a26;
+  --border: #2a2a3d; --text: #e8e8f0; --text-dim: #8888aa;
+  --text-muted: #4a4a66; --accent: #7c6fff; --radius: 14px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; line-height: 1.6;
+}
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 0; opacity: .6;
+}
+header {
+  padding: 30px 40px; text-align: center; border-bottom: 1px solid var(--border);
+  background: var(--surface); position: relative; z-index: 1;
+}
+h1 { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+p { color: var(--text-dim); font-size: 14px; margin-top: 5px; }
+.container { padding: 40px; max-width: 1000px; margin: 0 auto; position: relative; z-index: 1; }
+.grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 24px; transition: transform .2s, border-color .2s;
+  display: flex; flex-direction: column; height: 100%;
+}
+.card:hover { transform: translateY(-4px); border-color: var(--accent); }
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+.date-box { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--accent); font-size: 14px; }
+.day-name { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.badge {
+  padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 600; text-transform: uppercase;
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+}
+.card-title { font-weight: 500; font-size: 16px; margin-bottom: 10px; line-height: 1.4; color: #fff; }
+.card-desc { font-size: 13px; color: var(--text-dim); flex: 1; margin-bottom: 16px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card-footer { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 14px; }
+.status { display: flex; align-items: center; gap: 6px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.status-dot.publicado { background: #4fffb0; }
+.status-dot.programado { background: var(--accent); }
+.link { color: var(--accent); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.spinner { width: 30px; height: 30px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Parrilla de Contenido</h1>
+  <p>Planificación de publicaciones para Redes Sociales</p>
+</header>
+<div class="container" id="content">
+  <div class="spinner"></div>
+</div>
+<script>
+  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  
+  async function loadData() {
+    try {
+      const res = await fetch('/api/parrilla');
+      if (!res.ok) throw new Error('Error al conectar');
+      const posts = await res.json();
+      
+      if (!posts.length) {
+        document.getElementById('content').innerHTML = '<div class="empty-state">No hay contenido programado por el momento.</div>';
+        return;
+      }
+      
+      const html = posts.map(p => {
+        const estado = p.estado === 'medido' ? 'Publicado' : 'Programado';
+        const dot = p.estado === 'medido' ? 'publicado' : 'programado';
+        const link = p.instagram_permalink ? `<a href="${esc(p.instagram_permalink)}" target="_blank" class="link">Ver Post →</a>` : '<span>—</span>';
+        
+        return `<div class="card">
+          <div class="card-header">
+            <div>
+              <div class="date-box">${p.fecha}</div>
+              <div class="day-name">${p.dia_semana}</div>
+            </div>
+            <div class="badge">${esc(p.tipo_contenido)}</div>
+          </div>
+          <div class="card-title">${esc(p.tema)}</div>
+          <div class="card-desc">${esc(p.descripcion) || '<em>Sin descripción</em>'}</div>
+          <div class="card-footer">
+            <div class="status">
+              <div class="status-dot ${dot}"></div> ${estado}
+            </div>
+            ${link}
+          </div>
+        </div>`;
+      }).join('');
+      
+      document.getElementById('content').innerHTML = '<div class="grid">' + html + '</div>';
+    } catch (e) {
+      document.getElementById('content').innerHTML = '<div class="empty-state">No se pudo cargar la parrilla. Verifica que el servidor esté activo.</div>';
+    }
+  }
+  loadData();
+</script>
+</body>
+</html>
