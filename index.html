@@ -1018,6 +1018,14 @@ document.getElementById('form-post').addEventListener('submit', async e => {
     else fg.classList.remove('has-error');
   });
   if (!valid) return toast('Completa los campos requeridos', 'error');
+  
+  const imageUrl = document.getElementById('f-image-url').value.trim();
+  if (imageUrl && !isValidUrl(imageUrl)) {
+    document.getElementById('fg-image').classList.add('has-error');
+    return toast('El formato de la URL de imagen es inválido', 'error');
+  } else {
+    document.getElementById('fg-image').classList.remove('has-error');
+  }
 
   const btn = e.target.querySelector('[type=submit]');
   btn.disabled = true; btn.textContent = 'Guardando…';
@@ -1568,6 +1576,8 @@ async function guardarSmartLink(e) {
   const url = document.getElementById('sl-url').value.trim();
   if (!titulo || !url) return toast('Completa el título y la URL', 'error');
   
+  if (!isValidUrl(url)) return toast('El formato de la URL es inválido', 'error');
+  
   const btn = document.getElementById('btn-sl-submit');
   const org = btn.textContent;
   btn.disabled = true; btn.textContent = 'Guardando...';
@@ -1604,10 +1614,19 @@ async function deleteSmartLink(id) {
   } catch(err) { toast(err.message, 'error'); }
 }
 
+function isValidUrl(string) {
+  try {
+    const url = new URL(string);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch (_) {
+    return false;  
+  }
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   // Default date for form
-  document.getElementById('f-fecha').value = new Date().toISOString().split('T')[0];
+  document.getElementById('f-fecha').value = new Date().toISOString().split('T',1)[0];
   if (window.location.protocol === 'file:') {
     toast('Abre la app en http://localhost:8000 para usar API y dashboard', 'error');
   }

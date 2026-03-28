@@ -27,6 +27,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.executescript("""
+        PRAGMA journal_mode=WAL;
         CREATE TABLE IF NOT EXISTS posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT NOT NULL,
@@ -106,9 +107,27 @@ def parse_iso_date(value, field_name):
     if not value:
         raise ValueError(f"'{field_name}' es requerido")
     try:
+        # Strict validation
         datetime.strptime(value, "%Y-%m-%d")
     except (TypeError, ValueError):
         raise ValueError(f"'{field_name}' debe tener formato YYYY-MM-DD")
+    return value
+
+def validate_url(value, field_name, required=False):
+    if not value:
+        if required:
+            raise ValueError(f"'{field_name}' es requerido")
+        return ""
+    # Simple regex for URL validation
+    regex = re.compile(
+        r'^(?:http|ftp)s?://' # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' # domain...
+        r'localhost|' # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
+        r'(?::\d+)?' # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    if not re.match(regex, value):
+        raise ValueError(f"'{field_name}' debe ser una URL válida")
     return value
 
 def get_env(name, required=False):
@@ -207,7 +226,7 @@ def sync_instagram_posts_and_metrics(limit=25):
                 media_id = media.get("id")
                 if not media_id:
                     continue
-                timestamp = media.get("timestamp", "")
+                timestamp = str(media.get("timestamp", ""))
                 fecha = timestamp[:10] if timestamp else str(date.today())
                 try:
                     d = datetime.strptime(fecha, "%Y-%m-%d")
@@ -217,7 +236,7 @@ def sync_instagram_posts_and_metrics(limit=25):
                     dia = "Desconocido"
                     fecha = str(date.today())
 
-                caption = (media.get("caption") or "").strip()
+                caption = str(media.get("caption") or "").strip()
                 tema = caption[:200] if caption else f"Post Instagram {media_id}"
                 permalink = media.get("permalink") or ""
                 tipo = infer_tipo_from_caption(caption)
@@ -238,10 +257,9 @@ def sync_instagram_posts_and_metrics(limit=25):
                             fecha,
                             dia,
                             tipo,
-                            "visibilidad",
                             tema,
                             "Ver post en Instagram",
-                            caption[:2000],
+                            str(caption)[:2000],
                             0,
                             "programado",
                             media_id,
@@ -329,7 +347,7 @@ def get_instagram_status():
         account_id = None
     return {
         "configured": configured,
-        "account_id": account_id[-6:] if account_id else None,
+        "account_id": str(account_id)[-6:] if account_id else None,
     }
 
 def get_post_comments(post_id):
@@ -454,8 +472,10 @@ def generar_caption_ia(tema, objetivo):
     tonos = ["Persuasivo", "Educativo", "Cercano", "Directo"]
     ops = []
     for i, v in enumerate(vars_cap[:3]):
+        # Ensure hashtag doesn't have spaces and is alphanumeric
+        hashtag = "".join(e for e in str(tema_limpio).split()[0] if e.isalnum())
         ops.append({
-            "texto": v + "\n\n#socialmedia #estrategia #" + "".join(e for e in tema_limpio.split()[0] if e.isalnum()),
+            "texto": v + "\n\n#socialmedia #estrategia #" + hashtag,
             "tono": tonos[i % len(tonos)]
         })
     return {"ok": True, "opciones": ops}
@@ -490,7 +510,7 @@ def crear_post(data):
             data.get("cta",""),
             data.get("descripcion",""),
             parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
-            data.get("image_url", "")
+            validate_url(data.get("image_url", ""), "image_url")
         ))
         conn.commit()
         post_id = c.lastrowid
@@ -529,7 +549,7 @@ def editar_post(post_id, data):
             data.get("cta",""),
             data.get("descripcion",""),
             parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
-            data.get("image_url", ""),
+            validate_url(data.get("image_url", ""), "image_url"),
             post_id
         ))
         conn.commit()
@@ -718,7 +738,7 @@ def get_analisis():
     }
 
 def generar_insights(por_tipo, por_dia, totales):
-    insights = []
+    insights: list[str] = []
     if por_tipo and len(por_tipo) >= 2:
         mejor = por_tipo[0]
         peor = por_tipo[-1]
@@ -762,9 +782,9 @@ def get_smartlinks():
 
 def create_smartlink(data):
     titulo = str(data.get("titulo", "")).strip()
-    url_link = str(data.get("url", "")).strip()
-    if not titulo or not url_link:
-        raise ValueError("Título y URL son requeridos")
+    url_link = validate_url(data.get("url", ""), "url", required=True)
+    if not titulo:
+        raise ValueError("Título es requerido")
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("INSERT INTO smartlinks (titulo, url) VALUES (?, ?)", (titulo, url_link))
@@ -773,10 +793,10 @@ def create_smartlink(data):
 
 def edit_smartlink(link_id, data):
     titulo = str(data.get("titulo", "")).strip()
-    url_link = str(data.get("url", "")).strip()
+    url_link = validate_url(data.get("url", ""), "url", required=True)
     activo = int(data.get("activo", 1))
-    if not titulo or not url_link:
-        raise ValueError("Título y URL son requeridos")
+    if not titulo:
+        raise ValueError("Título es requerido")
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("UPDATE smartlinks SET titulo=?, url=?, activo=? WHERE id=?", (titulo, url_link, activo, link_id))
@@ -800,15 +820,24 @@ def track_smartlink_click(link_id):
 # ─── Servidor HTTP ────────────────────────────────────────────────────────────
 
 def json_response(handler, data, status=200):
-    body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.end_headers()
-    handler.wfile.write(body)
+    try:
+        body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+        handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+    except Exception as e:
+        print(f"Error fatal en json_response: {e}")
+        # Final fallback if something crashes during response generation
+        handler.send_response(500)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
+        handler.wfile.write(b'{"error":"Error interno al generar respuesta"}')
 
 def file_response(handler, filepath, content_type):
     try:
