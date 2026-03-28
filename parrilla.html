@@ -6,26 +6,27 @@
 <title>SocialGrid — Parrilla de Contenido Premium</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e293b; }
-  .font-title { font-family: 'Space Grotesk', sans-serif; }
-  .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.4); }
-  .tab-active { border-bottom: 2px solid #14b8a6; color: #14b8a6; font-weight: 600; }
-  .pillar-educativo { color: #0ea5e9; background: #e0f2fe; }
-  .pillar-emocional { color: #f43f5e; background: #fff1f2; }
-  .pillar-promocional { color: #d97706; background: #fef3c7; }
-  .pillar-storytelling { color: #10b981; background: #ecfdf5; }
-  .pillar-pregunta { color: #7c3aed; background: #f5f3ff; }
-  .pillar-otro { color: #64748b; background: #f1f5f9; }
+  body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; color: #191c1e; }
+  .font-title { font-family: 'Inter', sans-serif; }
+  .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(193, 198, 215, 0.25); }
+  .tab-active { border-bottom: 2px solid #0058bc; color: #0058bc; font-weight: 600; }
+  .pillar-educativo { color: #0058bc; background: rgba(0, 88, 188, 0.1); }
+  .pillar-emocional { color: #815200; background: rgba(163, 104, 0, 0.1); }
+  .pillar-promocional { color: #b90760; background: rgba(185, 7, 96, 0.1); }
+  .pillar-storytelling { color: #191c1e; background: #eceef0; }
+  .pillar-pregunta { color: #0070eb; background: rgba(0, 112, 235, 0.1); }
+  .pillar-otro { color: #414755; background: #f7f9fb; }
+  .ambient-shadow { box-shadow: 0px 12px 32px rgba(25, 28, 30, 0.06); }
 </style>
 </head>
 <body class="min-h-screen">
 
 <!-- NAVIGATION -->
-<nav class="sticky top-0 z-50 glass shadow-sm px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
-  <div class="flex items-center gap-3">
-    <div class="h-10 w-10 bg-teal-500 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-teal-500/20">S</div>
+<nav class="sticky top-0 z-50 glass px-8 py-5 flex flex-col md:flex-row items-center justify-between gap-4">
+  <div class="flex items-center gap-4">
+    <div class="h-10 w-10 bg-[#0058bc] rounded-md flex items-center justify-center text-white font-bold text-xl shadow-[0_4px_14px_rgba(0,88,188,0.2)]">S</div>
     <div>
       <h1 class="font-title font-bold text-lg leading-none">SocialPulse</h1>
       <p class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Content Hub</p>
@@ -43,40 +44,40 @@
 <main class="max-w-6xl mx-auto p-6 md:p-8">
 
   <!-- DASHBOARD VIEW -->
-  <section id="view-dashboard" class="space-y-8">
-    <div class="bg-gradient-to-r from-teal-600 to-emerald-500 rounded-3xl p-8 md:p-12 text-white relative overflow-hidden shadow-2xl shadow-teal-500/20">
+  <section id="view-dashboard" class="space-y-12">
+    <div class="bg-gradient-to-br from-[#0058bc] to-[#0070eb] rounded-xl p-8 md:p-14 text-white relative overflow-hidden shadow-[0_12px_32px_rgba(0,88,188,0.3)]">
       <div class="relative z-10 max-w-2xl">
-        <h2 class="font-title text-4xl md:text-5xl font-bold mb-4">Estrategia de Contenido Repositorio</h2>
-        <p class="text-teal-50 text-lg opacity-90">Planificación, visualización y recursos para la gestión de redes sociales.</p>
+        <h2 class="font-title text-4xl md:text-[40px] font-light tracking-tight mb-4 leading-tight">Estrategia de Contenido Repositorio</h2>
+        <p class="text-blue-50 text-base opacity-90 font-light">Planificación, visualización y recursos para la gestión de redes sociales.</p>
       </div>
-      <div class="absolute -right-20 -bottom-20 w-80 h-80 bg-white/10 rounded-full blur-3xl"></div>
+      <div class="absolute -right-20 -bottom-20 w-80 h-80 bg-white/5 rounded-full blur-3xl"></div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <p class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">Total Contenido</p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="bg-[#eceef0] p-8 rounded-xl transition-all">
+        <p class="text-[#414755] text-xs font-semibold uppercase tracking-wider mb-2">Total Contenido</p>
         <div class="flex items-end gap-2">
-          <span id="dash-total" class="text-4xl font-title font-bold text-slate-900">0</span>
-          <span class="text-slate-400 text-sm mb-1 pb-1">publicaciones</span>
+          <span id="dash-total" class="text-5xl font-light text-[#191c1e] tracking-tight">0</span>
+          <span class="text-[#414755] text-sm mb-1.5 pb-1">publicaciones</span>
         </div>
       </div>
-      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <p class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">Estado Actual</p>
-        <div class="flex items-center gap-4 mt-2">
-          <div class="flex items-center gap-1.5">
-            <div class="w-3 h-3 bg-emerald-400 rounded-full"></div>
-            <span id="dash-medidos" class="text-sm font-semibold text-slate-700">0 Publicados</span>
+      <div class="bg-white p-8 rounded-xl ambient-shadow">
+        <p class="text-[#414755] text-xs font-semibold uppercase tracking-wider mb-2">Estado Actual</p>
+        <div class="flex flex-col gap-3 mt-4">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 bg-[#0b8a4f] rounded-full"></div>
+            <span id="dash-medidos" class="text-sm font-medium text-[#191c1e]">0 Publicados</span>
           </div>
-          <div class="flex items-center gap-1.5">
-            <div class="w-3 h-3 bg-teal-400 rounded-full"></div>
-            <span id="dash-programados" class="text-sm font-semibold text-slate-700">0 Programados</span>
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 bg-[#eceef0] border border-[#c1c6d7] rounded-full"></div>
+            <span id="dash-programados" class="text-sm font-medium text-[#191c1e]">0 Programados</span>
           </div>
         </div>
       </div>
-      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <p class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">Integración IG</p>
-        <div class="flex items-center gap-2 mt-1">
-          <div id="ig-status" class="px-3 py-1 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full border border-slate-200 uppercase">Sincronizado</div>
+      <div class="bg-white p-8 rounded-xl ambient-shadow">
+        <p class="text-[#414755] text-xs font-semibold uppercase tracking-wider mb-2">Integración IG</p>
+        <div class="flex items-center gap-2 mt-3">
+          <div id="ig-status" class="px-3 py-1 bg-[#f7f9fb] text-[#191c1e] text-[11px] font-medium rounded-full uppercase">Sincronizado</div>
         </div>
       </div>
     </div>
@@ -95,22 +96,21 @@
     </div>
   </section>
 
-  <!-- FEED VIEW -->
   <section id="view-feed" class="hidden max-w-lg mx-auto py-10">
-    <div class="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xl">
-      <div class="p-6 border-b border-slate-100 text-center">
-        <div class="w-20 h-20 bg-slate-100 rounded-full mx-auto mb-4 border-2 border-teal-500 p-0.5">
-           <div class="w-full h-full bg-slate-200 rounded-full flex items-center justify-center text-slate-400">👤</div>
+    <div class="bg-white rounded-xl overflow-hidden ambient-shadow">
+      <div class="p-8 border-b border-[rgba(193,198,215,0.25)] text-center">
+        <div class="w-20 h-20 bg-[#f7f9fb] rounded-full mx-auto mb-4 border border-[rgba(193,198,215,0.5)] p-0.5">
+           <div class="w-full h-full bg-[#eceef0] rounded-full flex items-center justify-center text-[#414755]">👤</div>
         </div>
-        <h3 class="font-bold text-slate-900">@usuario_socialpulse</h3>
-        <p class="text-xs text-slate-500">Content Hub Preview</p>
-        <div class="flex justify-center gap-6 mt-4">
-           <div class="text-center"><p class="font-bold text-sm">9</p><p class="text-[10px] text-slate-400">Posts</p></div>
-           <div class="text-center"><p class="font-bold text-sm">1.2k</p><p class="text-[10px] text-slate-400">Seguidores</p></div>
-           <div class="text-center"><p class="font-bold text-sm">340</p><p class="text-[10px] text-slate-400">Siguiendo</p></div>
+        <h3 class="font-medium text-[20px] text-[#0058bc]">@usuario_socialpulse</h3>
+        <p class="text-[13px] text-[#414755] mt-1">Content Hub Preview</p>
+        <div class="flex justify-center gap-8 mt-6">
+           <div class="text-center"><p class="font-medium text-[16px]">9</p><p class="text-[11px] text-[#414755] uppercase tracking-wide mt-1">Posts</p></div>
+           <div class="text-center"><p class="font-medium text-[16px]">1.2k</p><p class="text-[11px] text-[#414755] uppercase tracking-wide mt-1">Seguidores</p></div>
+           <div class="text-center"><p class="font-medium text-[16px]">340</p><p class="text-[11px] text-[#414755] uppercase tracking-wide mt-1">Siguiendo</p></div>
         </div>
       </div>
-      <div class="grid grid-cols-3 gap-0.5" id="feed-grid">
+      <div class="grid grid-cols-3 gap-0.5 bg-[#eceef0]" id="feed-grid">
         <!-- Mock IG Grid -->
       </div>
     </div>
@@ -201,15 +201,15 @@
       
       posts.forEach(p => {
         html += `
-          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:border-teal-500 transition-colors group cursor-pointer" onclick="tab('posts')">
-            <div class="flex justify-between items-start mb-3">
-               <span class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-100">#${p.id}</span>
-               <span class="text-[10px] font-bold uppercase text-slate-300 group-hover:text-teal-500 transition-colors">${p.dia_semana || ''}</span>
+          <div class="bg-white p-6 rounded-xl border border-[rgba(193,198,215,0.25)] ambient-shadow hover:border-[rgba(193,198,215,0.6)] transition-all group cursor-pointer" onclick="tab('posts')">
+            <div class="flex justify-between items-start mb-4">
+               <span class="text-[11px] font-medium text-[#0058bc] bg-[rgba(0,88,188,0.1)] px-2 py-0.5 rounded-full">#${p.id}</span>
+               <span class="text-[10px] font-medium uppercase text-[#414755] transition-colors">${p.dia_semana || ''}</span>
             </div>
-            <div class="pillar-${p.tipo_contenido || 'otro'} text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-block mb-2">
+            <div class="pillar-${p.tipo_contenido || 'otro'} text-[10px] font-medium uppercase tracking-widest px-2.5 py-1 rounded-sm inline-block mb-3">
               ${p.tipo_contenido || 'Otro'}
             </div>
-            <h4 class="font-bold text-sm text-slate-800 line-clamp-2">${p.tema}</h4>
+            <h4 class="font-medium text-[15px] text-[#191c1e] line-clamp-2 leading-relaxed">${p.tema}</h4>
           </div>
         `;
       });
@@ -224,7 +224,7 @@
     grid.innerHTML = '';
     // Use last 9 posts or placeholders
     const posts = ALL_POSTS.slice(-12).reverse();
-    const colors = ['bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 'bg-sky-500'];
+    const colors = ['bg-[#0058bc]', 'bg-[#b90760]', 'bg-[#815200]', 'bg-[#414755]'];
     
     for(let i=0; i<12; i++) {
       const p = posts[i];
@@ -247,26 +247,26 @@
     
     filtered.forEach(p => {
       list.innerHTML += `
-        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-5 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
-             <div class="flex items-center gap-2">
-                <div class="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-xs">👤</div>
+        <div class="bg-white rounded-xl border border-[rgba(193,198,215,0.25)] ambient-shadow overflow-hidden flex flex-col transition-transform hover:-translate-y-1">
+          <div class="p-6 border-b border-[rgba(193,198,215,0.15)] flex items-center justify-between bg-[#f7f9fb]">
+             <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-[#eceef0] rounded-full flex items-center justify-center text-sm">👤</div>
                 <div>
-                   <p class="text-xs font-bold text-slate-900">SocialPulse</p>
-                   <p class="text-[10px] text-slate-400">${p.fecha}</p>
+                   <p class="text-[13px] font-medium text-[#191c1e]">SocialPulse</p>
+                   <p class="text-[11px] text-[#414755] mt-0.5">${p.fecha}</p>
                 </div>
              </div>
-             <div class="pillar-${p.tipo_contenido} text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded">
+             <div class="pillar-${p.tipo_contenido} text-[10px] font-medium uppercase tracking-widest px-3 py-1.5 rounded-sm">
                ${p.tipo_contenido}
              </div>
           </div>
-          <div class="p-5 flex-1 space-y-4">
-             <div class="bg-slate-50 rounded-xl p-4 aspect-square flex items-center justify-center text-center border border-slate-100">
-                <p class="font-title font-bold text-slate-800">${p.tema}</p>
+          <div class="p-6 flex-1 space-y-6">
+             <div class="bg-[#f7f9fb] rounded-md p-6 aspect-square flex items-center justify-center text-center">
+                <p class="font-title font-light text-[22px] leading-snug text-[#191c1e]">${p.tema}</p>
              </div>
              <div>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Copy / Caption</p>
-                <div class="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg max-h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-slate-100 font-mono">
+                <p class="text-[11px] font-semibold text-[#414755] uppercase tracking-widest mb-2">Copy / Caption</p>
+                <div class="text-[13.5px] text-[#191c1e] bg-[#f7f9fb] p-4 rounded-md max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed">
 ${p.descripcion || 'Sin descripción disponible.'}
 
 ---
@@ -274,9 +274,9 @@ ${p.cta || ''}
                 </div>
              </div>
           </div>
-          <div class="p-4 bg-slate-50/50 flex justify-between items-center">
-             <div class="text-[10px] text-slate-400 font-bold uppercase">Objetivo: <span class="text-slate-600">${p.objetivo}</span></div>
-             <button onclick="copyPost(${p.id})" class="text-[10px] font-bold bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:border-teal-500 hover:text-teal-600 transition-all">Copiar Texto</button>
+          <div class="p-5 bg-[rgba(193,198,215,0.1)] flex justify-between items-center border-t border-[rgba(193,198,215,0.15)]">
+             <div class="text-[11px] text-[#414755] font-medium uppercase tracking-wider">Objetivo: <span class="text-[#0058bc] font-semibold">${p.objetivo}</span></div>
+             <button onclick="copyPost(${p.id})" class="text-[12px] font-medium text-[#0058bc] bg-transparent border border-[rgba(193,198,215,0.4)] px-4 py-2 rounded-md hover:bg-[#eceef0] transition-colors">Copiar Texto</button>
           </div>
         </div>
       `;
