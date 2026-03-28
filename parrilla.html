@@ -3,112 +3,294 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Parrilla de Contenido — SocialPulse</title>
+<title>SocialGrid — Parrilla de Contenido Premium</title>
+<script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root {
-  --bg: #0a0a0f; --surface: #12121a; --surface2: #1a1a26;
-  --border: #2a2a3d; --text: #e8e8f0; --text-dim: #8888aa;
-  --text-muted: #4a4a66; --accent: #7c6fff; --radius: 14px;
-}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: 'DM Sans', sans-serif;
-  background: var(--bg); color: var(--text);
-  min-height: 100vh; line-height: 1.6;
-}
-body::before {
-  content: ''; position: fixed; inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
-  pointer-events: none; z-index: 0; opacity: .6;
-}
-header {
-  padding: 30px 40px; text-align: center; border-bottom: 1px solid var(--border);
-  background: var(--surface); position: relative; z-index: 1;
-}
-h1 { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
-p { color: var(--text-dim); font-size: 14px; margin-top: 5px; }
-.container { padding: 40px; max-width: 1000px; margin: 0 auto; position: relative; z-index: 1; }
-.grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-.card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 24px; transition: transform .2s, border-color .2s;
-  display: flex; flex-direction: column; height: 100%;
-}
-.card:hover { transform: translateY(-4px); border-color: var(--accent); }
-.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
-.date-box { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--accent); font-size: 14px; }
-.day-name { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
-.badge {
-  padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 600; text-transform: uppercase;
-  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
-}
-.card-title { font-weight: 500; font-size: 16px; margin-bottom: 10px; line-height: 1.4; color: #fff; }
-.card-desc { font-size: 13px; color: var(--text-dim); flex: 1; margin-bottom: 16px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.card-footer { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 14px; }
-.status { display: flex; align-items: center; gap: 6px; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
-.status-dot.publicado { background: #4fffb0; }
-.status-dot.programado { background: var(--accent); }
-.link { color: var(--accent); text-decoration: none; }
-.link:hover { text-decoration: underline; }
-.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
-.spinner { width: 30px; height: 30px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto; }
-@keyframes spin { to { transform: rotate(360deg); } }
+  body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e293b; }
+  .font-title { font-family: 'Space Grotesk', sans-serif; }
+  .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.4); }
+  .tab-active { border-bottom: 2px solid #14b8a6; color: #14b8a6; font-weight: 600; }
+  .pillar-educativo { color: #0ea5e9; background: #e0f2fe; }
+  .pillar-emocional { color: #f43f5e; background: #fff1f2; }
+  .pillar-promocional { color: #d97706; background: #fef3c7; }
+  .pillar-storytelling { color: #10b981; background: #ecfdf5; }
+  .pillar-pregunta { color: #7c3aed; background: #f5f3ff; }
+  .pillar-otro { color: #64748b; background: #f1f5f9; }
 </style>
 </head>
-<body>
-<header>
-  <h1>Parrilla de Contenido</h1>
-  <p>Planificación de publicaciones para Redes Sociales</p>
-</header>
-<div class="container" id="content">
-  <div class="spinner"></div>
-</div>
-<script>
-  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+<body class="min-h-screen">
+
+<!-- NAVIGATION -->
+<nav class="sticky top-0 z-50 glass shadow-sm px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+  <div class="flex items-center gap-3">
+    <div class="h-10 w-10 bg-teal-500 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-teal-500/20">S</div>
+    <div>
+      <h1 class="font-title font-bold text-lg leading-none">SocialPulse</h1>
+      <p class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Content Hub</p>
+    </div>
+  </div>
   
+  <div class="flex gap-1 bg-slate-100 p-1 rounded-xl">
+    <button onclick="tab('dashboard')" id="btn-dashboard" class="px-4 py-2 text-sm rounded-lg transition-all tab-active">Dashboard</button>
+    <button onclick="tab('calendario')" id="btn-calendario" class="px-4 py-2 text-sm rounded-lg text-slate-500 hover:text-slate-700 transition-all">Calendario</button>
+    <button onclick="tab('feed')" id="btn-feed" class="px-4 py-2 text-sm rounded-lg text-slate-500 hover:text-slate-700 transition-all">Feed Preview</button>
+    <button onclick="tab('posts')" id="btn-posts" class="px-4 py-2 text-sm rounded-lg text-slate-500 hover:text-slate-700 transition-all">Posts</button>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto p-6 md:p-8">
+
+  <!-- DASHBOARD VIEW -->
+  <section id="view-dashboard" class="space-y-8">
+    <div class="bg-gradient-to-r from-teal-600 to-emerald-500 rounded-3xl p-8 md:p-12 text-white relative overflow-hidden shadow-2xl shadow-teal-500/20">
+      <div class="relative z-10 max-w-2xl">
+        <h2 class="font-title text-4xl md:text-5xl font-bold mb-4">Estrategia de Contenido Repositorio</h2>
+        <p class="text-teal-50 text-lg opacity-90">Planificación, visualización y recursos para la gestión de redes sociales.</p>
+      </div>
+      <div class="absolute -right-20 -bottom-20 w-80 h-80 bg-white/10 rounded-full blur-3xl"></div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <p class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">Total Contenido</p>
+        <div class="flex items-end gap-2">
+          <span id="dash-total" class="text-4xl font-title font-bold text-slate-900">0</span>
+          <span class="text-slate-400 text-sm mb-1 pb-1">publicaciones</span>
+        </div>
+      </div>
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <p class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">Estado Actual</p>
+        <div class="flex items-center gap-4 mt-2">
+          <div class="flex items-center gap-1.5">
+            <div class="w-3 h-3 bg-emerald-400 rounded-full"></div>
+            <span id="dash-medidos" class="text-sm font-semibold text-slate-700">0 Publicados</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <div class="w-3 h-3 bg-teal-400 rounded-full"></div>
+            <span id="dash-programados" class="text-sm font-semibold text-slate-700">0 Programados</span>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <p class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">Integración IG</p>
+        <div class="flex items-center gap-2 mt-1">
+          <div id="ig-status" class="px-3 py-1 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full border border-slate-200 uppercase">Sincronizado</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CALENDAR VIEW -->
+  <section id="view-calendario" class="hidden space-y-6">
+    <div class="flex justify-between items-end">
+      <div>
+        <h2 class="font-title text-2xl font-bold text-slate-900">Calendario de Publicaciones</h2>
+        <p class="text-slate-500 text-sm">Distribución semanal sugerida (Lunes, Miércoles, Viernes)</p>
+      </div>
+    </div>
+    <div id="calendar-content" class="space-y-12">
+      <!-- Generated by JS -->
+    </div>
+  </section>
+
+  <!-- FEED VIEW -->
+  <section id="view-feed" class="hidden max-w-lg mx-auto py-10">
+    <div class="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xl">
+      <div class="p-6 border-b border-slate-100 text-center">
+        <div class="w-20 h-20 bg-slate-100 rounded-full mx-auto mb-4 border-2 border-teal-500 p-0.5">
+           <div class="w-full h-full bg-slate-200 rounded-full flex items-center justify-center text-slate-400">👤</div>
+        </div>
+        <h3 class="font-bold text-slate-900">@usuario_socialpulse</h3>
+        <p class="text-xs text-slate-500">Content Hub Preview</p>
+        <div class="flex justify-center gap-6 mt-4">
+           <div class="text-center"><p class="font-bold text-sm">9</p><p class="text-[10px] text-slate-400">Posts</p></div>
+           <div class="text-center"><p class="font-bold text-sm">1.2k</p><p class="text-[10px] text-slate-400">Seguidores</p></div>
+           <div class="text-center"><p class="font-bold text-sm">340</p><p class="text-[10px] text-slate-400">Siguiendo</p></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-0.5" id="feed-grid">
+        <!-- Mock IG Grid -->
+      </div>
+    </div>
+  </section>
+
+  <!-- POSTS VIEW -->
+  <section id="view-posts" class="hidden space-y-6">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <h2 class="font-title text-2xl font-bold text-slate-900">Directorio de Posts</h2>
+      <div class="flex gap-2">
+         <select onchange="renderPosts(this.value)" class="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-teal-500/20">
+            <option value="todos">Todos los pilares</option>
+            <option value="educativo">Educativo</option>
+            <option value="emocional">Emocional</option>
+            <option value="promocional">Promocional</option>
+            <option value="storytelling">Storytelling</option>
+         </select>
+      </div>
+    </div>
+    <div id="posts-list" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- Generated by JS -->
+    </div>
+  </section>
+
+</main>
+
+<script>
+  let ALL_POSTS = [];
+
+  function tab(id) {
+    ['dashboard', 'calendario', 'feed', 'posts'].forEach(v => {
+      document.getElementById('view-' + v).classList.add('hidden');
+      document.getElementById('btn-' + v).className = "px-4 py-2 text-sm rounded-lg text-slate-500 hover:text-slate-700 transition-all";
+    });
+    document.getElementById('view-' + id).classList.remove('hidden');
+    document.getElementById('btn-' + id).className = "px-4 py-2 text-sm rounded-lg transition-all tab-active";
+    
+    // Refresh views if needed
+    if (id === 'calendario') renderCalendar();
+    if (id === 'feed') renderFeed();
+    if (id === 'posts') renderPosts();
+  }
+
   async function loadData() {
     try {
       const res = await fetch('/api/parrilla');
-      if (!res.ok) throw new Error('Error al conectar');
-      const posts = await res.json();
+      ALL_POSTS = await res.json();
+      updateDashboard();
       
-      if (!posts.length) {
-        document.getElementById('content').innerHTML = '<div class="empty-state">No hay contenido programado por el momento.</div>';
-        return;
+      const statusRes = await fetch('/api/integrations/instagram/status');
+      const statusData = await statusRes.json();
+      const st = document.getElementById('ig-status');
+      if (statusData.configured) {
+        st.textContent = 'Conectado • ' + statusData.account_id;
+        st.className = 'px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-bold rounded-full border border-emerald-100 uppercase';
+      } else {
+        st.textContent = 'Sin Configurar';
+        st.className = 'px-3 py-1 bg-amber-50 text-amber-600 text-[10px] font-bold rounded-full border border-amber-100 uppercase';
       }
-      
-      const html = posts.map(p => {
-        const estado = p.estado === 'medido' ? 'Publicado' : 'Programado';
-        const dot = p.estado === 'medido' ? 'publicado' : 'programado';
-        const link = p.instagram_permalink ? `<a href="${esc(p.instagram_permalink)}" target="_blank" class="link">Ver Post →</a>` : '<span>—</span>';
-        
-        return `<div class="card">
-          <div class="card-header">
-            <div>
-              <div class="date-box">${p.fecha}</div>
-              <div class="day-name">${p.dia_semana}</div>
-            </div>
-            <div class="badge">${esc(p.tipo_contenido)}</div>
-          </div>
-          <div class="card-title">${esc(p.tema)}</div>
-          <div class="card-desc">${esc(p.descripcion) || '<em>Sin descripción</em>'}</div>
-          <div class="card-footer">
-            <div class="status">
-              <div class="status-dot ${dot}"></div> ${estado}
-            </div>
-            ${link}
-          </div>
-        </div>`;
-      }).join('');
-      
-      document.getElementById('content').innerHTML = '<div class="grid">' + html + '</div>';
     } catch (e) {
-      document.getElementById('content').innerHTML = '<div class="empty-state">No se pudo cargar la parrilla. Verifica que el servidor esté activo.</div>';
+      console.error("Error loading data", e);
     }
   }
+
+  function updateDashboard() {
+    document.getElementById('dash-total').textContent = ALL_POSTS.length;
+    document.getElementById('dash-medidos').textContent = ALL_POSTS.filter(p => p.estado === 'medido').length + " Publicados";
+    document.getElementById('dash-programados').textContent = ALL_POSTS.filter(p => p.estado === 'programado').length + " Programados";
+  }
+
+  function renderCalendar() {
+    // Basic semana columns: Mon, Wed, Fri
+    const container = document.getElementById('calendar-content');
+    container.innerHTML = '';
+    
+    // Group posts into buckets (naive grouping for demo)
+    const weeks = {};
+    ALL_POSTS.forEach((p, index) => {
+      const w = Math.floor(index / 3) + 1;
+      if (!weeks[w]) weeks[w] = [];
+      weeks[w].push(p);
+    });
+
+    Object.entries(weeks).forEach(([w, posts]) => {
+      let html = `<div class="space-y-4">
+        <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 border-b border-slate-200 pb-2">Semana ${w}</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">`;
+      
+      posts.forEach(p => {
+        html += `
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:border-teal-500 transition-colors group cursor-pointer" onclick="tab('posts')">
+            <div class="flex justify-between items-start mb-3">
+               <span class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-100">#${p.id}</span>
+               <span class="text-[10px] font-bold uppercase text-slate-300 group-hover:text-teal-500 transition-colors">${p.dia_semana || ''}</span>
+            </div>
+            <div class="pillar-${p.tipo_contenido || 'otro'} text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-block mb-2">
+              ${p.tipo_contenido || 'Otro'}
+            </div>
+            <h4 class="font-bold text-sm text-slate-800 line-clamp-2">${p.tema}</h4>
+          </div>
+        `;
+      });
+      
+      html += `</div></div>`;
+      container.innerHTML += html;
+    });
+  }
+
+  function renderFeed() {
+    const grid = document.getElementById('feed-grid');
+    grid.innerHTML = '';
+    // Use last 9 posts or placeholders
+    const posts = ALL_POSTS.slice(-12).reverse();
+    const colors = ['bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 'bg-sky-500'];
+    
+    for(let i=0; i<12; i++) {
+      const p = posts[i];
+      if (p) {
+        grid.innerHTML += `<div class="aspect-square relative group cursor-pointer overflow-hidden ${colors[i%4]} text-white p-4 flex items-center justify-center text-center">
+          <span class="text-[10px] font-bold leading-tight opacity-90 group-hover:scale-110 transition-transform">${p.tema}</span>
+          <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-bold">Ver Post</div>
+        </div>`;
+      } else {
+        grid.innerHTML += `<div class="aspect-square bg-slate-100 border border-slate-50"></div>`;
+      }
+    }
+  }
+
+  function renderPosts(filter = 'todos') {
+    const list = document.getElementById('posts-list');
+    list.innerHTML = '';
+    
+    const filtered = filter === 'todos' ? ALL_POSTS : ALL_POSTS.filter(p => p.tipo_contenido === filter);
+    
+    filtered.forEach(p => {
+      list.innerHTML += `
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+          <div class="p-5 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+             <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-xs">👤</div>
+                <div>
+                   <p class="text-xs font-bold text-slate-900">SocialPulse</p>
+                   <p class="text-[10px] text-slate-400">${p.fecha}</p>
+                </div>
+             </div>
+             <div class="pillar-${p.tipo_contenido} text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded">
+               ${p.tipo_contenido}
+             </div>
+          </div>
+          <div class="p-5 flex-1 space-y-4">
+             <div class="bg-slate-50 rounded-xl p-4 aspect-square flex items-center justify-center text-center border border-slate-100">
+                <p class="font-title font-bold text-slate-800">${p.tema}</p>
+             </div>
+             <div>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Copy / Caption</p>
+                <div class="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg max-h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-slate-100 font-mono">
+${p.descripcion || 'Sin descripción disponible.'}
+
+---
+${p.cta || ''}
+                </div>
+             </div>
+          </div>
+          <div class="p-4 bg-slate-50/50 flex justify-between items-center">
+             <div class="text-[10px] text-slate-400 font-bold uppercase">Objetivo: <span class="text-slate-600">${p.objetivo}</span></div>
+             <button onclick="copyPost(${p.id})" class="text-[10px] font-bold bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:border-teal-500 hover:text-teal-600 transition-all">Copiar Texto</button>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  function copyPost(id) {
+    const p = ALL_POSTS.find(x => x.id === id);
+    if (!p) return;
+    const text = `${p.tema}\n\n${p.descripcion || ''}\n\n${p.cta || ''}`;
+    navigator.clipboard.writeText(text);
+    alert('¡Texto copiado al portapapeles!');
+  }
+
   loadData();
 </script>
 </body>

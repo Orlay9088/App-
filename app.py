@@ -7,6 +7,8 @@ Ejecutar: python app.py
 import sqlite3
 import json
 import os
+import csv
+import io
 from datetime import datetime, date
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, urlencode
@@ -56,6 +58,16 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS smartlinks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titulo TEXT NOT NULL,
+            url TEXT NOT NULL,
+            clicks INTEGER DEFAULT 0,
+            orden INTEGER DEFAULT 0,
+            activo INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     # Lightweight migration for existing databases.
     c.execute("PRAGMA table_info(posts)")
@@ -65,6 +77,8 @@ def init_db():
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_instagram_media_id ON posts(instagram_media_id)")
     if "instagram_permalink" not in post_columns:
         c.execute("ALTER TABLE posts ADD COLUMN instagram_permalink TEXT")
+    if "image_url" not in post_columns:
+        c.execute("ALTER TABLE posts ADD COLUMN image_url TEXT")
 
     conn.commit()
     conn.close()
@@ -124,6 +138,24 @@ def graph_get(path, params):
     query = urlencode(params)
     url = f"{IG_GRAPH_BASE}/{path}?{query}"
     req = Request(url, method="GET")
+    try:
+        with urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except HTTPError as e:
+        raw = e.read().decode("utf-8", errors="ignore")
+        try:
+            payload = json.loads(raw)
+            msg = payload.get("error", {}).get("message") or raw
+        except json.JSONDecodeError:
+            msg = raw or str(e)
+        raise ValueError(f"Instagram API error: {msg}")
+    except URLError:
+        raise ValueError("No se pudo conectar con Instagram Graph API")
+
+def graph_post(path, params):
+    data = urlencode(params).encode("utf-8")
+    url = f"{IG_GRAPH_BASE}/{path}"
+    req = Request(url, data=data, method="POST")
     try:
         with urlopen(req, timeout=20) as resp:
             return json.loads(resp.read().decode("utf-8"))
@@ -292,6 +324,140 @@ def get_instagram_status():
         "account_id": account_id[-6:] if account_id else None,
     }
 
+def get_post_comments(post_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT instagram_media_id FROM posts WHERE id=?", (post_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row or not row["instagram_media_id"]:
+        raise LookupError("Post no encontrado o no está sincronizado con IG")
+    
+    cfg = get_ig_config()
+    token = cfg["token"]
+    media_id = row["instagram_media_id"]
+    
+    res = graph_get(
+        f"{media_id}/comments",
+        {
+            "fields": "id,text,timestamp,username,replies{id,text,timestamp,username}",
+            "access_token": token
+        }
+    )
+    return res.get("data", [])
+
+def reply_to_comment(comment_id, message):
+    if not message or not message.strip():
+        raise ValueError("El mensaje no puede estar vacío")
+    
+    cfg = get_ig_config()
+    res = graph_post(
+        f"{comment_id}/replies",
+        {
+            "message": message,
+            "access_token": cfg["token"]
+        }
+    )
+    return {"ok": True, "id": res.get("id")}
+
+def publish_post(post_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM posts WHERE id=?", (post_id,))
+    row = c.fetchone()
+    
+    if not row:
+        conn.close()
+        raise LookupError("Post no encontrado")
+        
+    if not row["image_url"]:
+        conn.close()
+        raise ValueError("El post debe tener una URL de imagen válida para ser publicado en Instagram")
+        
+    cfg = get_ig_config()
+    account_id = cfg["account_id"]
+    token = cfg["token"]
+    
+    caption_text = f"{row['tema']}\n\n{row['descripcion']}" if row['descripcion'] else row['tema']
+    
+    # 1. Create Media Container
+    container_res = graph_post(
+        f"{account_id}/media",
+        {
+            "image_url": row["image_url"],
+            "caption": caption_text,
+            "access_token": token
+        }
+    )
+    creation_id = container_res.get("id")
+    if not creation_id:
+        conn.close()
+        raise ValueError("Error al crear el contenedor de medios en Instagram")
+        
+    # 2. Publish Media
+    publish_res = graph_post(
+        f"{account_id}/media_publish",
+        {
+            "creation_id": creation_id,
+            "access_token": token
+        }
+    )
+    media_id = publish_res.get("id")
+    if not media_id:
+        conn.close()
+        raise ValueError("Error al publicar el post en Instagram")
+        
+    # Attempt to fetch permalink from graph
+    permalink = ""
+    try:
+        media_data = graph_get(media_id, {"fields": "permalink", "access_token": token})
+        permalink = media_data.get("permalink", "")
+    except Exception:
+        pass
+        
+    c.execute("""
+        UPDATE posts 
+        SET estado='publicado', instagram_media_id=?, instagram_permalink=? 
+        WHERE id=?
+    """, (media_id, permalink, post_id))
+    conn.commit()
+    conn.close()
+    
+    return {"ok": True, "media_id": media_id, "permalink": permalink}
+
+import random
+
+def generar_caption_ia(tema, objetivo):
+    tema_limpio = tema.strip() if tema else "nuestro último contenido"
+    if objetivo in ["vender", "atraer_clientes"]:
+        vars_cap = [
+            f"🔥 ¡Es el momento de transformar tu enfoque! Descubre todo sobre {tema_limpio} y lleva tus resultados al siguiente nivel. 🚀\n\n¿Estás listo para dar el paso? 👇",
+            f"¿Llevas tiempo pensando en {tema_limpio}? 🤔 Deja de darle vueltas y descubre nuestra estrategia completa. ¡Resultados garantizados! ✨\n\nHaz clic en el enlace de nuestra bio para empezar.",
+            f"⚡ Oferta especial ⚡ Porque sabemos que {tema_limpio} es clave para tu éxito. No dejes pasar esta oportunidad única. ⏳"
+        ]
+    elif objetivo in ["educar", "visibilidad"]:
+        vars_cap = [
+            f"📚 3 claves fundamentales sobre {tema_limpio} que nadie te ha contado. ¡Desliza para descubrirlas! 👉\n\n1️⃣ La paciencia paga.\n2️⃣ La estrategia manda.\n3️⃣ Tú tienes el control.\n\n¿Cuál es tu opinión al respecto?",
+            f"💡 Hablemos de algo importante: {tema_limpio}. Muchas veces lo pasamos por alto, pero dominar este concepto cambiará tu perspectiva por completo.\n\nGuarda este post para leerlo más tarde. 🔖",
+            f"El mito más grande sobre {tema_limpio} al descubierto. 🤯 Mitos vs Realidades en nuestro nuevo análisis. ¿Tú de qué lado estás?"
+        ]
+    else:
+        vars_cap = [
+            f"✨ Hoy queremos compartir algo muy especial relacionado con {tema_limpio}. Cada pequeño paso cuenta en este viaje.\n\n¡Déjanos un comentario si estás de acuerdo! 👇",
+            f"¿Qué significa realmente {tema_limpio} para ti? Para nosotros es inspiración constante. 🌟\n\nTe leemos en los comentarios. 💬",
+            f"Haciendo que {tema_limpio} sea parte de nuestra rutina. 🌿 Un día a la vez. ¡Menciona a alguien que necesite ver esto!"
+        ]
+    
+    random.shuffle(vars_cap)
+    tonos = ["Persuasivo", "Educativo", "Cercano", "Directo"]
+    ops = []
+    for i, v in enumerate(vars_cap[:3]):
+        ops.append({
+            "texto": v + "\n\n#socialmedia #estrategia #" + "".join(e for e in tema_limpio.split()[0] if e.isalnum()),
+            "tono": tonos[i % len(tonos)]
+        })
+    return {"ok": True, "opciones": ops}
+
 # ─── Lógica de negocio ────────────────────────────────────────────────────────
 
 def crear_post(data):
@@ -312,8 +478,8 @@ def crear_post(data):
     c = conn.cursor()
     c.execute("""
         INSERT INTO posts (fecha, dia_semana, tipo_contenido, objetivo, tema, cta,
-                           descripcion, interacciones_esperadas)
-        VALUES (?,?,?,?,?,?,?,?)
+                           descripcion, interacciones_esperadas, image_url)
+        VALUES (?,?,?,?,?,?,?,?,?)
     """, (
         fecha, dia,
         data.get("tipo_contenido",""),
@@ -321,7 +487,8 @@ def crear_post(data):
         data.get("tema",""),
         data.get("cta",""),
         data.get("descripcion",""),
-        parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas")
+        parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
+        data.get("image_url", "")
     ))
     conn.commit()
     post_id = c.lastrowid
@@ -352,7 +519,7 @@ def editar_post(post_id, data):
     c.execute("""
         UPDATE posts
         SET fecha=?, dia_semana=?, tipo_contenido=?, objetivo=?, tema=?, cta=?,
-            descripcion=?, interacciones_esperadas=?
+            descripcion=?, interacciones_esperadas=?, image_url=?
         WHERE id=?
     """, (
         fecha, dia,
@@ -362,6 +529,7 @@ def editar_post(post_id, data):
         data.get("cta",""),
         data.get("descripcion",""),
         parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
+        data.get("image_url", ""),
         post_id
     ))
     conn.commit()
@@ -409,6 +577,42 @@ def registrar_metricas(post_id, data):
     conn.close()
     return {"ok": True}
 
+def get_csv_report():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT p.id, p.fecha, p.dia_semana, p.tipo_contenido, p.objetivo, p.tema, p.estado,
+               m.likes, m.comentarios, m.compartidos, m.guardados, m.respuestas_dm,
+               m.fecha_medicion,
+               (COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
+                +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as interaccion_total
+        FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
+        ORDER BY p.fecha DESC
+    """)
+    rows = c.fetchall()
+    conn.close()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID", "Fecha", "Día", "Tipo", "Objetivo", "Tema", "Estado", 
+        "Likes", "Comentarios", "Compartidos", "Guardados", "Resp_DM", 
+        "Interaccion_Total", "Fecha_Medicion"
+    ])
+    for row in rows:
+        writer.writerow([
+            row["id"], row["fecha"], row["dia_semana"], row["tipo_contenido"],
+            row["objetivo"], row["tema"].replace('\n', ' '), row["estado"],
+            row["likes"] if row["likes"] is not None else 0,
+            row["comentarios"] if row["comentarios"] is not None else 0,
+            row["compartidos"] if row["compartidos"] is not None else 0,
+            row["guardados"] if row["guardados"] is not None else 0,
+            row["respuestas_dm"] if row["respuestas_dm"] is not None else 0,
+            row["interaccion_total"],
+            row["fecha_medicion"] or ""
+        ])
+    return output.getvalue()
+
 def get_posts():
     conn = get_conn()
     c = conn.cursor()
@@ -428,7 +632,7 @@ def get_parrilla():
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
-        SELECT id, fecha, dia_semana, tipo_contenido, tema, descripcion, estado, instagram_permalink
+        SELECT id, fecha, dia_semana, tipo_contenido, tema, descripcion, estado, instagram_permalink, image_url
         FROM posts
         ORDER BY fecha ASC
     """)
@@ -452,7 +656,7 @@ def set_config_keys(data):
     c = conn.cursor()
     
     # We only allow updating these keys
-    allowed_keys = ["INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN"]
+    allowed_keys = ["INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN", "EXTERNAL_GRID_URL"]
     
     for key, val in data.items():
         if key in allowed_keys:
@@ -560,6 +764,57 @@ def eliminar_post(post_id):
     conn.close()
     return {"ok": True}
 
+# ─── SmartLinks (Link-in-bio) ─────────────────────────────────────────────────
+
+def get_smartlinks():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM smartlinks ORDER BY orden ASC, created_at DESC")
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def create_smartlink(data):
+    titulo = str(data.get("titulo", "")).strip()
+    url_link = str(data.get("url", "")).strip()
+    if not titulo or not url_link:
+        raise ValueError("Título y URL son requeridos")
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("INSERT INTO smartlinks (titulo, url) VALUES (?, ?)", (titulo, url_link))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+def edit_smartlink(link_id, data):
+    titulo = str(data.get("titulo", "")).strip()
+    url_link = str(data.get("url", "")).strip()
+    activo = int(data.get("activo", 1))
+    if not titulo or not url_link:
+        raise ValueError("Título y URL son requeridos")
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE smartlinks SET titulo=?, url=?, activo=? WHERE id=?", (titulo, url_link, activo, link_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+def delete_smartlink(link_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM smartlinks WHERE id=?", (link_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+def track_smartlink_click(link_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE smartlinks SET clicks = clicks + 1 WHERE id=?", (link_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
 # ─── Servidor HTTP ────────────────────────────────────────────────────────────
 
 def json_response(handler, data, status=200):
@@ -607,21 +862,45 @@ class Handler(BaseHTTPRequestHandler):
             file_response(self, "index.html", "text/html; charset=utf-8")
         elif path == "/parrilla" or path == "/parrilla.html":
             file_response(self, "parrilla.html", "text/html; charset=utf-8")
+        elif path == "/bio" or path == "/bio.html":
+            file_response(self, "bio.html", "text/html; charset=utf-8")
         elif path == "/api/posts":
             json_response(self, get_posts())
         elif path == "/api/parrilla":
             json_response(self, get_parrilla())
+        elif path == "/api/smartlinks":
+            json_response(self, get_smartlinks())
+        elif path == "/api/smartlinks/public":
+            links = get_smartlinks()
+            # return only active public links
+            json_response(self, [l for l in links if l['activo'] == 1])
         elif path == "/api/analisis":
             json_response(self, get_analisis())
+        elif path == "/api/export":
+            csv_data = get_csv_report()
+            body = csv_data.encode("utf-8-sig")  # Excel compatible
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="socialpulse_report.csv"')
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif path == "/api/integrations/instagram/status":
             json_response(self, get_instagram_status())
         elif path == "/api/config":
             json_response(self, get_config_keys())
-            json_response(self, get_posts())
-        elif path == "/api/analisis":
-            json_response(self, get_analisis())
-        elif path == "/api/integrations/instagram/status":
-            json_response(self, get_instagram_status())
+        elif m := re.match(r"/api/posts/(\d+)/comments$", path):
+            post_id = int(m.group(1))
+            try:
+                json_response(self, get_post_comments(post_id))
+            except Exception as e:
+                json_response(self, {"error": str(e)}, 400)
+        elif not path.startswith("/api/"):
+            # Fallback for SPA routing: serve index.html for other non-API routes
+            file_response(self, "index.html", "text/html; charset=utf-8")
         else:
             json_response(self, {"error": "Not found"}, 404)
 
@@ -640,12 +919,30 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/posts":
                 result = crear_post(data)
                 json_response(self, result, 201)
+            elif path == "/api/smartlinks":
+                result = create_smartlink(data)
+                json_response(self, result, 201)
             elif path == "/api/config":
                 result = set_config_keys(data)
                 json_response(self, result)
-            elif re.match(r"/api/posts/(\d+)/metricas$", path):
-                post_id = int(re.search(r"/api/posts/(\d+)/metricas$", path).group(1))
+            elif path == "/api/ai/generate":
+                result = generar_caption_ia(data.get("tema", ""), data.get("objetivo", ""))
+                json_response(self, result)
+            elif m := re.match(r"/api/posts/(\d+)/metricas$", path):
+                post_id = int(m.group(1))
                 result = registrar_metricas(post_id, data)
+                json_response(self, result)
+            elif m := re.match(r"/api/posts/(\d+)/publish$", path):
+                post_id = int(m.group(1))
+                result = publish_post(post_id)
+                json_response(self, result)
+            elif m := re.match(r"/api/smartlinks/(\d+)/click$", path):
+                link_id = int(m.group(1))
+                result = track_smartlink_click(link_id)
+                json_response(self, result)
+            elif m := re.match(r"/api/comments/([^/]+)/reply$", path):
+                comment_id = m.group(1)
+                result = reply_to_comment(comment_id, data.get("message"))
                 json_response(self, result)
             elif path == "/api/integrations/instagram/sync":
                 limit = parse_int(data.get("limit", 25), "limit", default=25, minimum=1)
@@ -670,11 +967,21 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        m = re.match(r"/api/posts/(\d+)$", path)
-        if m:
+        if m := re.match(r"/api/posts/(\d+)$", path):
             post_id = int(m.group(1))
             try:
                 result = editar_post(post_id, data)
+                json_response(self, result)
+            except ValueError as e:
+                json_response(self, {"error": str(e)}, 400)
+            except LookupError as e:
+                json_response(self, {"error": str(e)}, 404)
+            except Exception:
+                json_response(self, {"error": "Error interno del servidor"}, 500)
+        elif m := re.match(r"/api/smartlinks/(\d+)$", path):
+            link_id = int(m.group(1))
+            try:
+                result = edit_smartlink(link_id, data)
                 json_response(self, result)
             except ValueError as e:
                 json_response(self, {"error": str(e)}, 400)
@@ -687,8 +994,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         path = urlparse(self.path).path
-        m = re.match(r"/api/posts/(\d+)$", path)
-        if m:
+        if m := re.match(r"/api/posts/(\d+)$", path):
             post_id = int(m.group(1))
             try:
                 result = eliminar_post(post_id)
