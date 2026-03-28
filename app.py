@@ -15,6 +15,7 @@ from urllib.parse import urlparse, urlencode
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 import re
+import traceback
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "socialpulse.db")
@@ -117,11 +118,10 @@ def get_env(name, required=False):
     return value
 
 def get_ig_config():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT key, value FROM config WHERE key IN ('INSTAGRAM_BUSINESS_ACCOUNT_ID', 'INSTAGRAM_ACCESS_TOKEN')")
-    rows = c.fetchall()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT key, value FROM config WHERE key IN ('INSTAGRAM_BUSINESS_ACCOUNT_ID', 'INSTAGRAM_ACCESS_TOKEN')")
+        rows = c.fetchall()
     
     config_db = {row['key']: row['value'] for row in rows}
     
@@ -196,119 +196,127 @@ def sync_instagram_posts_and_metrics(limit=25):
         },
     )
     media_items = media_response.get("data", [])
-    conn = get_conn()
-    c = conn.cursor()
+    
     imported = 0
     updated = 0
 
-    for media in media_items:
-        media_id = media.get("id")
-        if not media_id:
-            continue
-        timestamp = media.get("timestamp", "")
-        fecha = timestamp[:10] if timestamp else str(date.today())
-        try:
-            d = datetime.strptime(fecha, "%Y-%m-%d")
-            dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-            dia = dias[d.weekday()]
-        except ValueError:
-            dia = "Desconocido"
-            fecha = str(date.today())
+    with get_conn() as conn:
+        c = conn.cursor()
+        for media in media_items:
+            try:
+                media_id = media.get("id")
+                if not media_id:
+                    continue
+                timestamp = media.get("timestamp", "")
+                fecha = timestamp[:10] if timestamp else str(date.today())
+                try:
+                    d = datetime.strptime(fecha, "%Y-%m-%d")
+                    dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                    dia = dias[d.weekday()]
+                except ValueError:
+                    dia = "Desconocido"
+                    fecha = str(date.today())
 
-        caption = (media.get("caption") or "").strip()
-        tema = caption[:200] if caption else f"Post Instagram {media_id}"
-        permalink = media.get("permalink") or ""
-        tipo = infer_tipo_from_caption(caption)
+                caption = (media.get("caption") or "").strip()
+                tema = caption[:200] if caption else f"Post Instagram {media_id}"
+                permalink = media.get("permalink") or ""
+                tipo = infer_tipo_from_caption(caption)
 
-        c.execute("SELECT id FROM posts WHERE instagram_media_id=?", (media_id,))
-        row = c.fetchone()
-        if row:
-            post_id = row["id"]
-        else:
-            c.execute(
-                """
-                INSERT INTO posts (
-                    fecha, dia_semana, tipo_contenido, objetivo, tema, cta, descripcion,
-                    interacciones_esperadas, estado, instagram_media_id, instagram_permalink
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    fecha,
-                    dia,
-                    tipo,
-                    "visibilidad",
-                    tema,
-                    "Ver post en Instagram",
-                    caption[:2000],
-                    0,
-                    "programado",
-                    media_id,
-                    permalink,
-                ),
-            )
-            post_id = c.lastrowid
-            imported += 1
+                c.execute("SELECT id FROM posts WHERE instagram_media_id=?", (media_id,))
+                row = c.fetchone()
+                if row:
+                    post_id = row["id"]
+                else:
+                    c.execute(
+                        """
+                        INSERT INTO posts (
+                            fecha, dia_semana, tipo_contenido, objetivo, tema, cta, descripcion,
+                            interacciones_esperadas, estado, instagram_media_id, instagram_permalink
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            fecha,
+                            dia,
+                            tipo,
+                            "visibilidad",
+                            tema,
+                            "Ver post en Instagram",
+                            caption[:2000],
+                            0,
+                            "programado",
+                            media_id,
+                            permalink,
+                        ),
+                    )
+                    post_id = c.lastrowid
+                    imported += 1
 
-        insights = graph_get(
-            media_id,
-            {
-                "fields": "like_count,comments_count",
-                "access_token": token,
-            },
-        )
-        likes = parse_int(insights.get("like_count", 0), "like_count")
-        comentarios = parse_int(insights.get("comments_count", 0), "comments_count")
-        # Fetch extra insights if possible (like saved, shares).
-        # We try to get 'saved'. If it fails, fallback to 0. (Not all objects support 'saved' but standard posts do).
-        guardados = 0
-        compartidos = 0
-        try:
-            ins = graph_get(
-                f"{media_id}/insights",
-                {
-                    "metric": "saved,shares",
-                    "access_token": token
-                }
-            )
-            data = ins.get("data", [])
-            for m in data:
-                if m.get("name") == "saved":
-                    guardados = sum(v.get("value", 0) for v in m.get("values", []))
-                elif m.get("name") == "shares":
-                    compartidos = sum(v.get("value", 0) for v in m.get("values", []))
-        except ValueError:
-            pass # Metric not supported or missing for this object
+                # 🛡️ Blindaje: Si falla la obtención de métricas de un post, continuamos con el siguiente.
+                try:
+                    insights = graph_get(
+                        media_id,
+                        {
+                            "fields": "like_count,comments_count",
+                            "access_token": token,
+                        },
+                    )
+                    likes = parse_int(insights.get("like_count", 0), "like_count")
+                    comentarios = parse_int(insights.get("comments_count", 0), "comments_count")
+                    
+                    guardados = 0
+                    compartidos = 0
+                    try:
+                        ins = graph_get(
+                            f"{media_id}/insights",
+                            {
+                                "metric": "saved,shares",
+                                "access_token": token
+                            }
+                        )
+                        data = ins.get("data", [])
+                        for m in data:
+                            if m.get("name") == "saved":
+                                guardados = sum(v.get("value", 0) for v in m.get("values", []))
+                            elif m.get("name") == "shares":
+                                compartidos = sum(v.get("value", 0) for v in m.get("values", []))
+                    except (ValueError, Exception):
+                        pass # Metric not supported or transient error for this object
+                    
+                    c.execute(
+                        """
+                        INSERT INTO metricas (post_id, likes, comentarios, compartidos, guardados,
+                                              respuestas_dm, nuevos_seguidores, fecha_medicion, notas)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(post_id) DO UPDATE SET
+                            likes=excluded.likes,
+                            comentarios=excluded.comentarios,
+                            compartidos=excluded.compartidos,
+                            guardados=excluded.guardados,
+                            fecha_medicion=excluded.fecha_medicion,
+                            notas=excluded.notas
+                        """,
+                        (
+                            post_id,
+                            likes,
+                            comentarios,
+                            compartidos,
+                            guardados,
+                            0,
+                            0,
+                            str(date.today()),
+                            "Sincronizado desde Instagram API",
+                        ),
+                    )
+                    c.execute("UPDATE posts SET estado='medido', instagram_permalink=? WHERE id=?", (permalink, post_id))
+                    updated += 1
+                except Exception as e:
+                    print(f"⚠️ Error sincronizando métricas para media {media_id}: {str(e)}")
+                    continue
+            except Exception as e:
+                print(f"⚠️ Error procesando item de media: {str(e)}")
+                continue
 
-        c.execute(
-            """
-            INSERT INTO metricas (post_id, likes, comentarios, compartidos, guardados,
-                                  respuestas_dm, nuevos_seguidores, fecha_medicion, notas)
-            VALUES (?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(post_id) DO UPDATE SET
-                likes=excluded.likes,
-                comentarios=excluded.comentarios,
-                compartidos=excluded.compartidos,
-                guardados=excluded.guardados,
-                fecha_medicion=excluded.fecha_medicion,
-                notas=excluded.notas
-            """,
-            (
-                post_id,
-                likes,
-                comentarios,
-                compartidos,
-                guardados,
-                0,
-                0,
-                str(date.today()),
-                "Sincronizado desde Instagram API",
-            ),
-        )
-        c.execute("UPDATE posts SET estado='medido', instagram_permalink=? WHERE id=?", (permalink, post_id))
-        updated += 1
-
-    conn.commit()
-    conn.close()
+        conn.commit()
     return {"ok": True, "importados": imported, "metricas_actualizadas": updated, "total_recibidos": len(media_items)}
 
 def get_instagram_status():
@@ -325,11 +333,10 @@ def get_instagram_status():
     }
 
 def get_post_comments(post_id):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT instagram_media_id FROM posts WHERE id=?", (post_id,))
-    row = c.fetchone()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT instagram_media_id FROM posts WHERE id=?", (post_id,))
+        row = c.fetchone()
     if not row or not row["instagram_media_id"]:
         raise LookupError("Post no encontrado o no está sincronizado con IG")
     
@@ -361,67 +368,62 @@ def reply_to_comment(comment_id, message):
     return {"ok": True, "id": res.get("id")}
 
 def publish_post(post_id):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM posts WHERE id=?", (post_id,))
-    row = c.fetchone()
-    
-    if not row:
-        conn.close()
-        raise LookupError("Post no encontrado")
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM posts WHERE id=?", (post_id,))
+        row = c.fetchone()
         
-    if not row["image_url"]:
-        conn.close()
-        raise ValueError("El post debe tener una URL de imagen válida para ser publicado en Instagram")
+        if not row:
+            raise LookupError("Post no encontrado")
+            
+        if not row["image_url"]:
+            raise ValueError("El post debe tener una URL de imagen válida para ser publicado en Instagram")
+            
+        cfg = get_ig_config()
+        account_id = cfg["account_id"]
+        token = cfg["token"]
         
-    cfg = get_ig_config()
-    account_id = cfg["account_id"]
-    token = cfg["token"]
-    
-    caption_text = f"{row['tema']}\n\n{row['descripcion']}" if row['descripcion'] else row['tema']
-    
-    # 1. Create Media Container
-    container_res = graph_post(
-        f"{account_id}/media",
-        {
-            "image_url": row["image_url"],
-            "caption": caption_text,
-            "access_token": token
-        }
-    )
-    creation_id = container_res.get("id")
-    if not creation_id:
-        conn.close()
-        raise ValueError("Error al crear el contenedor de medios en Instagram")
+        caption_text = f"{row['tema']}\n\n{row['descripcion']}" if row['descripcion'] else row['tema']
         
-    # 2. Publish Media
-    publish_res = graph_post(
-        f"{account_id}/media_publish",
-        {
-            "creation_id": creation_id,
-            "access_token": token
-        }
-    )
-    media_id = publish_res.get("id")
-    if not media_id:
-        conn.close()
-        raise ValueError("Error al publicar el post en Instagram")
-        
-    # Attempt to fetch permalink from graph
-    permalink = ""
-    try:
-        media_data = graph_get(media_id, {"fields": "permalink", "access_token": token})
-        permalink = media_data.get("permalink", "")
-    except Exception:
-        pass
-        
-    c.execute("""
-        UPDATE posts 
-        SET estado='publicado', instagram_media_id=?, instagram_permalink=? 
-        WHERE id=?
-    """, (media_id, permalink, post_id))
-    conn.commit()
-    conn.close()
+        # 1. Create Media Container
+        container_res = graph_post(
+            f"{account_id}/media",
+            {
+                "image_url": row["image_url"],
+                "caption": caption_text,
+                "access_token": token
+            }
+        )
+        creation_id = container_res.get("id")
+        if not creation_id:
+            raise ValueError("Error al crear el contenedor de medios en Instagram")
+            
+        # 2. Publish Media
+        publish_res = graph_post(
+            f"{account_id}/media_publish",
+            {
+                "creation_id": creation_id,
+                "access_token": token
+            }
+        )
+        media_id = publish_res.get("id")
+        if not media_id:
+            raise ValueError("Error al publicar el post en Instagram")
+            
+        # Attempt to fetch permalink from graph
+        permalink = ""
+        try:
+            media_data = graph_get(media_id, {"fields": "permalink", "access_token": token})
+            permalink = media_data.get("permalink", "")
+        except Exception:
+            pass
+            
+        c.execute("""
+            UPDATE posts 
+            SET estado='publicado', instagram_media_id=?, instagram_permalink=? 
+            WHERE id=?
+        """, (media_id, permalink, post_id))
+        conn.commit()
     
     return {"ok": True, "media_id": media_id, "permalink": permalink}
 
@@ -474,25 +476,24 @@ def crear_post(data):
         if not str(data.get(field, "")).strip():
             raise ValueError(f"'{field}' es requerido")
 
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO posts (fecha, dia_semana, tipo_contenido, objetivo, tema, cta,
-                           descripcion, interacciones_esperadas, image_url)
-        VALUES (?,?,?,?,?,?,?,?,?)
-    """, (
-        fecha, dia,
-        data.get("tipo_contenido",""),
-        data.get("objetivo",""),
-        data.get("tema",""),
-        data.get("cta",""),
-        data.get("descripcion",""),
-        parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
-        data.get("image_url", "")
-    ))
-    conn.commit()
-    post_id = c.lastrowid
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO posts (fecha, dia_semana, tipo_contenido, objetivo, tema, cta,
+                               descripcion, interacciones_esperadas, image_url)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (
+            fecha, dia,
+            data.get("tipo_contenido",""),
+            data.get("objetivo",""),
+            data.get("tema",""),
+            data.get("cta",""),
+            data.get("descripcion",""),
+            parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
+            data.get("image_url", "")
+        ))
+        conn.commit()
+        post_id = c.lastrowid
     return {"ok": True, "id": post_id, "dia_semana": dia}
 
 def editar_post(post_id, data):
@@ -509,88 +510,83 @@ def editar_post(post_id, data):
         if not str(data.get(field, "")).strip():
             raise ValueError(f"'{field}' es requerido")
 
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT id FROM posts WHERE id=?", (post_id,))
-    if not c.fetchone():
-        conn.close()
-        raise LookupError("Post no encontrado")
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id FROM posts WHERE id=?", (post_id,))
+        if not c.fetchone():
+            raise LookupError("Post no encontrado")
 
-    c.execute("""
-        UPDATE posts
-        SET fecha=?, dia_semana=?, tipo_contenido=?, objetivo=?, tema=?, cta=?,
-            descripcion=?, interacciones_esperadas=?, image_url=?
-        WHERE id=?
-    """, (
-        fecha, dia,
-        data.get("tipo_contenido",""),
-        data.get("objetivo",""),
-        data.get("tema",""),
-        data.get("cta",""),
-        data.get("descripcion",""),
-        parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
-        data.get("image_url", ""),
-        post_id
-    ))
-    conn.commit()
-    conn.close()
+        c.execute("""
+            UPDATE posts
+            SET fecha=?, dia_semana=?, tipo_contenido=?, objetivo=?, tema=?, cta=?,
+                descripcion=?, interacciones_esperadas=?, image_url=?
+            WHERE id=?
+        """, (
+            fecha, dia,
+            data.get("tipo_contenido",""),
+            data.get("objetivo",""),
+            data.get("tema",""),
+            data.get("cta",""),
+            data.get("descripcion",""),
+            parse_int(data.get("interacciones_esperadas", 0), "interacciones_esperadas"),
+            data.get("image_url", ""),
+            post_id
+        ))
+        conn.commit()
     return {"ok": True, "id": post_id, "dia_semana": dia}
 
 def registrar_metricas(post_id, data):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT id FROM posts WHERE id=?", (post_id,))
-    if not c.fetchone():
-        conn.close()
-        raise LookupError("Post no encontrado")
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id FROM posts WHERE id=?", (post_id,))
+        if not c.fetchone():
+            raise LookupError("Post no encontrado")
 
-    fecha_medicion = data.get("fecha_medicion", str(date.today()))
-    if fecha_medicion:
-        parse_iso_date(fecha_medicion, "fecha_medicion")
+        fecha_medicion = data.get("fecha_medicion", str(date.today()))
+        if fecha_medicion:
+            parse_iso_date(fecha_medicion, "fecha_medicion")
 
-    c.execute("""
-        INSERT INTO metricas (post_id, likes, comentarios, compartidos, guardados,
-                               respuestas_dm, nuevos_seguidores, fecha_medicion, notas)
-        VALUES (?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(post_id) DO UPDATE SET
-            likes=excluded.likes,
-            comentarios=excluded.comentarios,
-            compartidos=excluded.compartidos,
-            guardados=excluded.guardados,
-            respuestas_dm=excluded.respuestas_dm,
-            nuevos_seguidores=excluded.nuevos_seguidores,
-            fecha_medicion=excluded.fecha_medicion,
-            notas=excluded.notas
-    """, (
-        post_id,
-        parse_int(data.get("likes", 0), "likes"),
-        parse_int(data.get("comentarios", 0), "comentarios"),
-        parse_int(data.get("compartidos", 0), "compartidos"),
-        parse_int(data.get("guardados", 0), "guardados"),
-        parse_int(data.get("respuestas_dm", 0), "respuestas_dm"),
-        parse_int(data.get("nuevos_seguidores", 0), "nuevos_seguidores"),
-        fecha_medicion,
-        data.get("notas", "")
-    ))
-    c.execute("UPDATE posts SET estado='medido' WHERE id=?", (post_id,))
-    conn.commit()
-    conn.close()
+        c.execute("""
+            INSERT INTO metricas (post_id, likes, comentarios, compartidos, guardados,
+                                   respuestas_dm, nuevos_seguidores, fecha_medicion, notas)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(post_id) DO UPDATE SET
+                likes=excluded.likes,
+                comentarios=excluded.comentarios,
+                compartidos=excluded.compartidos,
+                guardados=excluded.guardados,
+                respuestas_dm=excluded.respuestas_dm,
+                nuevos_seguidores=excluded.nuevos_seguidores,
+                fecha_medicion=excluded.fecha_medicion,
+                notas=excluded.notas
+        """, (
+            post_id,
+            parse_int(data.get("likes", 0), "likes"),
+            parse_int(data.get("comentarios", 0), "comentarios"),
+            parse_int(data.get("compartidos", 0), "compartidos"),
+            parse_int(data.get("guardados", 0), "guardados"),
+            parse_int(data.get("respuestas_dm", 0), "respuestas_dm"),
+            parse_int(data.get("nuevos_seguidores", 0), "nuevos_seguidores"),
+            fecha_medicion,
+            data.get("notas", "")
+        ))
+        c.execute("UPDATE posts SET estado='medido' WHERE id=?", (post_id,))
+        conn.commit()
     return {"ok": True}
 
 def get_csv_report():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT p.id, p.fecha, p.dia_semana, p.tipo_contenido, p.objetivo, p.tema, p.estado,
-               m.likes, m.comentarios, m.compartidos, m.guardados, m.respuestas_dm,
-               m.fecha_medicion,
-               (COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
-                +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as interaccion_total
-        FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
-        ORDER BY p.fecha DESC
-    """)
-    rows = c.fetchall()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT p.id, p.fecha, p.dia_semana, p.tipo_contenido, p.objetivo, p.tema, p.estado,
+                   m.likes, m.comentarios, m.compartidos, m.guardados, m.respuestas_dm,
+                   m.fecha_medicion,
+                   (COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
+                    +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as interaccion_total
+            FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
+            ORDER BY p.fecha DESC
+        """)
+        rows = c.fetchall()
     
     output = io.StringIO()
     writer = csv.writer(output)
@@ -614,113 +610,106 @@ def get_csv_report():
     return output.getvalue()
 
 def get_posts():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT p.*, m.likes, m.comentarios, m.compartidos, m.guardados,
-               m.respuestas_dm, m.nuevos_seguidores, m.notas, m.fecha_medicion,
-               (COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
-                +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as interaccion_total
-        FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
-        ORDER BY p.fecha DESC
-    """)
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT p.*, m.likes, m.comentarios, m.compartidos, m.guardados,
+                   m.respuestas_dm, m.nuevos_seguidores, m.notas, m.fecha_medicion,
+                   (COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
+                    +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as interaccion_total
+            FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
+            ORDER BY p.fecha DESC
+        """)
+        rows = [dict(r) for r in c.fetchall()]
     return rows
 
 def get_parrilla():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, fecha, dia_semana, tipo_contenido, tema, descripcion, estado, instagram_permalink, image_url
-        FROM posts
-        ORDER BY fecha ASC
-    """)
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, fecha, dia_semana, tipo_contenido, tema, descripcion, estado, instagram_permalink, image_url
+            FROM posts
+            ORDER BY fecha ASC
+        """)
+        rows = [dict(r) for r in c.fetchall()]
     return rows
 
 def get_config_keys():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT key, value FROM config")
-    rows = {r['key']: r['value'] for r in c.fetchall()}
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT key, value FROM config")
+        rows = {r['key']: r['value'] for r in c.fetchall()}
     # Mask the token for safety when reading
     if "INSTAGRAM_ACCESS_TOKEN" in rows and rows["INSTAGRAM_ACCESS_TOKEN"]:
         rows["INSTAGRAM_ACCESS_TOKEN"] = rows["INSTAGRAM_ACCESS_TOKEN"][:4] + "***"
     return rows
 
 def set_config_keys(data):
-    conn = get_conn()
-    c = conn.cursor()
-    
     # We only allow updating these keys
     allowed_keys = ["INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN", "EXTERNAL_GRID_URL"]
     
-    for key, val in data.items():
-        if key in allowed_keys:
-            # If value contains "***", do not overwrite it.
-            if "***" in val:
-                continue
-            c.execute("""
-                INSERT INTO config (key, value) VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value=excluded.value
-            """, (key, val))
-            
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        for key, val in data.items():
+            if key in allowed_keys:
+                # If value contains "***", do not overwrite it.
+                if "***" in val:
+                    continue
+                c.execute("""
+                    INSERT INTO config (key, value) VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """, (key, val))
+        conn.commit()
     return {"ok": True}
 
 def get_analisis():
-    conn = get_conn()
-    c = conn.cursor()
+    with get_conn() as conn:
+        c = conn.cursor()
 
-    # Promedio por tipo de contenido
-    c.execute("""
-        SELECT p.tipo_contenido,
-               COUNT(*) as total_posts,
-               AVG(COALESCE(m.likes,0)) as avg_likes,
-               AVG(COALESCE(m.comentarios,0)) as avg_comentarios,
-               AVG(COALESCE(m.compartidos,0)) as avg_compartidos,
-               AVG(COALESCE(m.guardados,0)) as avg_guardados,
-               AVG(COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
-                   +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as avg_interaccion
-        FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
-        GROUP BY p.tipo_contenido
-        ORDER BY avg_interaccion DESC
-    """)
-    por_tipo = [dict(r) for r in c.fetchall()]
+        # Promedio por tipo de contenido
+        c.execute("""
+            SELECT p.tipo_contenido,
+                   COUNT(*) as total_posts,
+                   AVG(COALESCE(m.likes,0)) as avg_likes,
+                   AVG(COALESCE(m.comentarios,0)) as avg_comentarios,
+                   AVG(COALESCE(m.compartidos,0)) as avg_compartidos,
+                   AVG(COALESCE(m.guardados,0)) as avg_guardados,
+                   AVG(COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
+                       +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as avg_interaccion
+            FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
+            GROUP BY p.tipo_contenido
+            ORDER BY avg_interaccion DESC
+        """)
+        por_tipo = [dict(r) for r in c.fetchall()]
 
-    # Promedio por día
-    c.execute("""
-        SELECT p.dia_semana,
-               COUNT(*) as total_posts,
-               AVG(COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
-                   +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as avg_interaccion
-        FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
-        WHERE m.id IS NOT NULL
-        GROUP BY p.dia_semana
-        ORDER BY avg_interaccion DESC
-    """)
-    por_dia = [dict(r) for r in c.fetchall()]
+        # Promedio por día
+        c.execute("""
+            SELECT p.dia_semana,
+                   COUNT(*) as total_posts,
+                   AVG(COALESCE(m.likes,0)+COALESCE(m.comentarios,0)*2+COALESCE(m.compartidos,0)*3
+                       +COALESCE(m.guardados,0)*4+COALESCE(m.respuestas_dm,0)*5) as avg_interaccion
+            FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
+            WHERE m.id IS NOT NULL
+            GROUP BY p.dia_semana
+            ORDER BY avg_interaccion DESC
+        """)
+        por_dia = [dict(r) for r in c.fetchall()]
 
-    # Totales generales
-    c.execute("""
-        SELECT COUNT(*) as total_posts,
-               COUNT(m.id) as posts_medidos,
-               SUM(COALESCE(m.likes,0)) as total_likes,
-               SUM(COALESCE(m.comentarios,0)) as total_comentarios,
-               SUM(COALESCE(m.compartidos,0)) as total_compartidos,
-               SUM(COALESCE(m.guardados,0)) as total_guardados
-        FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
-    """)
-    totales = dict(c.fetchone())
+        # Totales generales
+        c.execute("""
+            SELECT COUNT(*) as total_posts,
+                   COUNT(m.id) as posts_medidos,
+                   SUM(COALESCE(m.likes,0)) as total_likes,
+                   SUM(COALESCE(m.comentarios,0)) as total_comentarios,
+                   SUM(COALESCE(m.compartidos,0)) as total_compartidos,
+                   SUM(COALESCE(m.guardados,0)) as total_guardados
+            FROM posts p LEFT JOIN metricas m ON p.id = m.post_id
+        """)
+        totales = dict(c.fetchone())
 
     # Insights automáticos
     insights = generar_insights(por_tipo, por_dia, totales)
 
-    conn.close()
     return {
         "por_tipo": por_tipo,
         "por_dia": por_dia,
@@ -752,26 +741,23 @@ def generar_insights(por_tipo, por_dia, totales):
     return insights
 
 def eliminar_post(post_id):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT id FROM posts WHERE id=?", (post_id,))
-    if not c.fetchone():
-        conn.close()
-        raise LookupError("Post no encontrado")
-    c.execute("DELETE FROM metricas WHERE post_id=?", (post_id,))
-    c.execute("DELETE FROM posts WHERE id=?", (post_id,))
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id FROM posts WHERE id=?", (post_id,))
+        if not c.fetchone():
+            raise LookupError("Post no encontrado")
+        c.execute("DELETE FROM metricas WHERE post_id=?", (post_id,))
+        c.execute("DELETE FROM posts WHERE id=?", (post_id,))
+        conn.commit()
     return {"ok": True}
 
 # ─── SmartLinks (Link-in-bio) ─────────────────────────────────────────────────
 
 def get_smartlinks():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM smartlinks ORDER BY orden ASC, created_at DESC")
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM smartlinks ORDER BY orden ASC, created_at DESC")
+        rows = [dict(r) for r in c.fetchall()]
     return rows
 
 def create_smartlink(data):
@@ -779,11 +765,10 @@ def create_smartlink(data):
     url_link = str(data.get("url", "")).strip()
     if not titulo or not url_link:
         raise ValueError("Título y URL son requeridos")
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("INSERT INTO smartlinks (titulo, url) VALUES (?, ?)", (titulo, url_link))
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("INSERT INTO smartlinks (titulo, url) VALUES (?, ?)", (titulo, url_link))
+        conn.commit()
     return {"ok": True}
 
 def edit_smartlink(link_id, data):
@@ -792,27 +777,24 @@ def edit_smartlink(link_id, data):
     activo = int(data.get("activo", 1))
     if not titulo or not url_link:
         raise ValueError("Título y URL son requeridos")
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("UPDATE smartlinks SET titulo=?, url=?, activo=? WHERE id=?", (titulo, url_link, activo, link_id))
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE smartlinks SET titulo=?, url=?, activo=? WHERE id=?", (titulo, url_link, activo, link_id))
+        conn.commit()
     return {"ok": True}
 
 def delete_smartlink(link_id):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("DELETE FROM smartlinks WHERE id=?", (link_id,))
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM smartlinks WHERE id=?", (link_id,))
+        conn.commit()
     return {"ok": True}
 
 def track_smartlink_click(link_id):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("UPDATE smartlinks SET clicks = clicks + 1 WHERE id=?", (link_id,))
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE smartlinks SET clicks = clicks + 1 WHERE id=?", (link_id,))
+        conn.commit()
     return {"ok": True}
 
 # ─── Servidor HTTP ────────────────────────────────────────────────────────────
@@ -955,6 +937,7 @@ class Handler(BaseHTTPRequestHandler):
         except LookupError as e:
             json_response(self, {"error": str(e)}, 404)
         except Exception:
+            traceback.print_exc()
             json_response(self, {"error": "Error interno del servidor"}, 500)
 
     def do_PUT(self):
