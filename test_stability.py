@@ -3,7 +3,7 @@ import requests
 import time
 import json
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://127.0.0.1:8000"
 
 def test_concurrent_writes():
     print("🚀 Iniciando prueba de ESCRITURA CONCURRENTE (SQLite Stress Test)...")
@@ -20,7 +20,8 @@ def test_concurrent_writes():
             "interacciones_esperadas": 100
         }
         try:
-            resp = requests.post(f"{BASE_URL}/api/posts", json=data)
+            headers = {"X-API-Key": "4f645d656f59152b9dd9e2b944be344d466a292071c7cff3"}
+            resp = requests.post(f"{BASE_URL}/api/posts", json=data, headers=headers)
             results.append(resp.status_code)
         except Exception as e:
             results.append(f"Error: {str(e)}")

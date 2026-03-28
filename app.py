@@ -16,6 +16,7 @@ from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 import re
 import traceback
+import secrets
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "socialpulse.db")
@@ -152,6 +153,30 @@ def get_ig_config():
             "en la interfaz de configuración o variables de entorno."
         )
     return {"account_id": account_id, "token": token}
+
+def get_api_key():
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT value FROM config WHERE key='SOCIALPULSE_API_KEY'")
+        row = c.fetchone()
+    if not row:
+        # Generate new random key if it doesn't exist
+        new_key = secrets.token_hex(24)
+        set_config_keys({"SOCIALPULSE_API_KEY": new_key})
+        return new_key
+    return row["value"]
+
+def ensure_env():
+    """Valida configuración crítica en el arranque."""
+    print("⚡ Realizando validación de inicio...")
+    try:
+        init_db()
+        key = get_api_key()
+        print(f"🔑 API Key Activa: socialpulse_{key[:4]}...{key[-4:]}")
+        print("✅ Sistema listo para producción.")
+    except Exception as e:
+        print(f"❌ Error crítico en el arranque: {e}")
+        exit(1)
 
 def graph_get(path, params):
     query = urlencode(params)
@@ -401,6 +426,18 @@ def publish_post(post_id):
         account_id = cfg["account_id"]
         token = cfg["token"]
         
+        if account_id == "mock":
+            print(f"🎬 [MOCK] Publicando post {post_id} en Instagram...")
+            media_id = f"mock_media_{secrets.token_hex(8)}"
+            permalink = f"https://www.instagram.com/p/{secrets.token_hex(4)}/"
+            c.execute("""
+                UPDATE posts 
+                SET estado='publicado', instagram_media_id=?, instagram_permalink=? 
+                WHERE id=?
+            """, (media_id, permalink, post_id))
+            conn.commit()
+            return {"ok": True, "media_id": media_id, "permalink": permalink, "mock": True}
+
         caption_text = f"{row['tema']}\n\n{row['descripcion']}" if row['descripcion'] else row['tema']
         
         # 1. Create Media Container
@@ -666,7 +703,7 @@ def get_config_keys():
 
 def set_config_keys(data):
     # We only allow updating these keys
-    allowed_keys = ["INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN", "EXTERNAL_GRID_URL"]
+    allowed_keys = ["INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN", "EXTERNAL_GRID_URL", "SOCIALPULSE_API_KEY"]
     
     with get_conn() as conn:
         c = conn.cursor()
@@ -855,6 +892,23 @@ def file_response(handler, filepath, content_type):
         handler.end_headers()
 
 class Handler(BaseHTTPRequestHandler):
+    def check_auth(self):
+        # Public paths or OPTIONS don't need API Key
+        parsed = urlparse(self.path)
+        if self.command == "OPTIONS" or parsed.path in ["/", "/index.html", "/parrilla", "/parrilla.html", "/bio", "/bio.html", "/api/smartlinks/public"]:
+            return True
+        
+        # Require X-API-Key for all /api/ requests
+        auth_header = self.headers.get("X-API-Key")
+        expected_key = get_api_key()
+        
+        if auth_header == expected_key:
+            return True
+        
+        # Unauthorized
+        json_response(self, {"error": "No autorizado. Se requiere X-API-Key válida."}, 401)
+        return False
+
     def log_message(self, fmt, *args):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {fmt % args}")
 
@@ -866,6 +920,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if not self.check_auth():
+            return
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -916,6 +972,8 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"error": "Not found"}, 404)
 
     def do_POST(self):
+        if not self.check_auth():
+            return
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         try:
@@ -970,6 +1028,8 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"error": "Error interno del servidor"}, 500)
 
     def do_PUT(self):
+        if not self.check_auth():
+            return
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         try:
@@ -1005,6 +1065,8 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"error": "Ruta no encontrada"}, 404)
 
     def do_DELETE(self):
+        if not self.check_auth():
+            return
         path = urlparse(self.path).path
         if m := re.match(r"/api/posts/(\d+)$", path):
             post_id = int(m.group(1))
@@ -1020,7 +1082,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    init_db()
+    ensure_env()
     port = 8000
     server = HTTPServer(("0.0.0.0", port), Handler)
     print(f"""
